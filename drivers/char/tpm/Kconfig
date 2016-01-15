@@ -122,5 +122,15 @@ config TCG_CRB
 	  from within Linux.  To compile this driver as a module, choose
 	  M here; the module will be called tpm_crb.
 
+config TCG_VTPM
+	tristate "VTPM Interface"
+	depends on TCG_TPM
+	---help---
+	  This driver supports a vTPM running in userspace that receives
+	  request from /dev/vtpmsX. The requests are sent through a
+	  corrsponding /dev/tpmcY. The /dev/vtpmsX and /dev/tpmcY pair
+	  can be created dyanmically through ioctls of /dev/vtpmx.
+
+
 source "drivers/char/tpm/st33zp24/Kconfig"
 endif # TCG_TPM

@@ -181,7 +181,7 @@ struct tpm_chip {
 	unsigned int flags;
 
 	int dev_num;		/* /dev/tpm# */
-	char devname[7];
+	char devname[10];
 	unsigned long is_open;	/* only one allowed */
 	int time_expired;
 
@@ -517,6 +517,10 @@ extern int wait_for_tpm_stat(struct tpm_chip *, u8, unsigned long,
 struct tpm_chip *tpm_chip_find_get(int chip_num);
 extern struct tpm_chip *tpmm_chip_alloc(struct device *dev,
 				       const struct tpm_class_ops *ops);
+extern struct tpm_chip *tpmm_chip_alloc_pattern(
+				       struct device *dev,
+				       const struct tpm_class_ops *ops,
+				       const char *pattern);
 extern int tpm_chip_register(struct tpm_chip *chip);
 extern void tpm_chip_unregister(struct tpm_chip *chip);
 

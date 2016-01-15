@@ -75,17 +75,20 @@ static void tpm_dev_release(struct device *dev)
 }
 
 /**
- * tpmm_chip_alloc() - allocate a new struct tpm_chip instance
+ * tpmm_chip_alloc_pattern() - allocate a new struct tpm_chip instance
+ *   and use the given pattern for naming the device
  * @dev: device to which the chip is associated
  * @ops: struct tpm_class_ops instance
+ * @pattern: name pattern of the device
  *
  * Allocates a new struct tpm_chip instance and assigns a free
  * device number for it. Caller does not have to worry about
  * freeing the allocated resources. When the devices is removed
  * devres calls tpmm_chip_remove() to do the job.
  */
-struct tpm_chip *tpmm_chip_alloc(struct device *dev,
-				 const struct tpm_class_ops *ops)
+struct tpm_chip *tpmm_chip_alloc_pattern(struct device *dev,
+				         const struct tpm_class_ops *ops,
+				         const char *pattern)
 {
 	struct tpm_chip *chip;
 
@@ -110,7 +113,7 @@ struct tpm_chip *tpmm_chip_alloc(struct device *dev,
 
 	set_bit(chip->dev_num, dev_mask);
 
-	scnprintf(chip->devname, sizeof(chip->devname), "tpm%d", chip->dev_num);
+	scnprintf(chip->devname, sizeof(chip->devname), pattern, chip->dev_num);
 
 	chip->pdev = dev;
 
@@ -137,6 +140,23 @@ struct tpm_chip *tpmm_chip_alloc(struct device *dev,
 	chip->cdev.kobj.parent = &chip->dev.kobj;
 
 	return chip;
+}
+EXPORT_SYMBOL_GPL(tpmm_chip_alloc_pattern);
+
+/**
+ * tpmm_chip_alloc() - allocate a new struct tpm_chip instance
+ * @dev: device to which the chip is associated
+ * @ops: struct tpm_class_ops instance
+ *
+ * Allocates a new struct tpm_chip instance and assigns a free
+ * device number for it. Caller does not have to worry about
+ * freeing the allocated resources. When the devices is removed
+ * devres calls tpmm_chip_remove() to do the job.
+ */
+struct tpm_chip *tpmm_chip_alloc(struct device *dev,
+				 const struct tpm_class_ops *ops)
+{
+    return tpmm_chip_alloc_pattern(dev, ops, "tpm%d");
 }
 EXPORT_SYMBOL_GPL(tpmm_chip_alloc);
 

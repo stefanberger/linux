@@ -181,11 +181,14 @@ static int tpm1_chip_register(struct tpm_chip *chip)
 	if (chip->flags & TPM_CHIP_FLAG_TPM2)
 		return 0;
 
-	rc = tpm_sysfs_add_device(chip);
-	if (rc)
-		return rc;
+	if (!(chip->flags & TPM_CHIP_FLAG_NO_SYSFS)) {
+		rc = tpm_sysfs_add_device(chip);
+		if (rc)
+			return rc;
+	}
 
-	chip->bios_dir = tpm_bios_log_setup(chip->devname);
+	if (!(chip->flags & TPM_CHIP_FLAG_NO_LOG))
+		chip->bios_dir = tpm_bios_log_setup(chip->devname);
 
 	return 0;
 }
@@ -198,7 +201,8 @@ static void tpm1_chip_unregister(struct tpm_chip *chip)
 	if (chip->bios_dir)
 		tpm_bios_log_teardown(chip->bios_dir);
 
-	tpm_sysfs_del_device(chip);
+	if (!(chip->flags & TPM_CHIP_FLAG_NO_SYSFS))
+		tpm_sysfs_del_device(chip);
 }
 
 /*

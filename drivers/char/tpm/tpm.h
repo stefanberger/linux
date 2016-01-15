@@ -168,6 +168,8 @@ struct tpm_vendor_specific {
 enum tpm_chip_flags {
 	TPM_CHIP_FLAG_REGISTERED	= BIT(0),
 	TPM_CHIP_FLAG_TPM2		= BIT(1),
+	TPM_CHIP_FLAG_NO_SYSFS		= BIT(3),
+	TPM_CHIP_FLAG_NO_LOG		= BIT(4),
 };
 
 struct tpm_chip {

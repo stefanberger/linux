@@ -197,6 +197,8 @@ struct tpm_chip {
 #endif /* CONFIG_ACPI */
 
 	struct list_head list;
+
+	void *priv;
 };
 
 #define to_tpm_chip(d) container_of(d, struct tpm_chip, dev)

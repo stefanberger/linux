@@ -58,6 +58,15 @@ struct tpm_chip *tpm_chip_find_get(int chip_num)
 	return chip;
 }
 
+void tpm_chip_free(struct tpm_chip *chip)
+{
+	spin_lock(&driver_lock);
+	clear_bit(chip->dev_num, dev_mask);
+	spin_unlock(&driver_lock);
+	kfree(chip);
+}
+EXPORT_SYMBOL_GPL(tpm_chip_free);
+
 /**
  * tpm_dev_release() - free chip memory and the device number
  * @dev: the character device for the TPM chip
@@ -68,10 +77,7 @@ static void tpm_dev_release(struct device *dev)
 {
 	struct tpm_chip *chip = container_of(dev, struct tpm_chip, dev);
 
-	spin_lock(&driver_lock);
-	clear_bit(chip->dev_num, dev_mask);
-	spin_unlock(&driver_lock);
-	kfree(chip);
+	tpm_chip_free(chip);
 }
 
 /**

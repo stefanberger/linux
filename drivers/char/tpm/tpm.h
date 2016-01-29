@@ -515,6 +515,7 @@ extern int wait_for_tpm_stat(struct tpm_chip *, u8, unsigned long,
 struct tpm_chip *tpm_chip_find_get(int chip_num);
 extern struct tpm_chip *tpmm_chip_alloc(struct device *dev,
 				       const struct tpm_class_ops *ops);
+extern void tpm_chip_free(struct tpm_chip *chip);
 extern int tpm_chip_register(struct tpm_chip *chip);
 extern void tpm_chip_unregister(struct tpm_chip *chip);
 

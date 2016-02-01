@@ -383,6 +383,12 @@ struct tpm_startup_in {
 	__be16	startup_type;
 } __packed;
 
+enum tpm_startup_types {
+	TPM_ST_CLEAR		= 0x0001,
+	TPM_ST_STATE		= 0x0002,
+	TPM_ST_DEACTIVATED	= 0x0003,
+};
+
 typedef union {
 	struct	tpm_getcap_params_out getcap_out;
 	struct	tpm_readpubek_params_out readpubek_out;
@@ -505,6 +511,7 @@ ssize_t tpm_transmit(struct tpm_chip *chip, const char *buf,
 		     size_t bufsiz);
 ssize_t tpm_transmit_cmd(struct tpm_chip *chip, void *cmd, int len,
 			 const char *desc);
+extern int tpm_startup(struct tpm_chip *, u16 startup_type);
 extern int tpm_get_timeouts(struct tpm_chip *);
 extern void tpm_gen_interrupt(struct tpm_chip *);
 extern int tpm_do_selftest(struct tpm_chip *);

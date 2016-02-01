@@ -474,24 +474,22 @@ void tpm_gen_interrupt(struct tpm_chip *chip)
 EXPORT_SYMBOL_GPL(tpm_gen_interrupt);
 
 #define TPM_ORD_STARTUP cpu_to_be32(153)
-#define TPM_ST_CLEAR cpu_to_be16(1)
-#define TPM_ST_STATE cpu_to_be16(2)
-#define TPM_ST_DEACTIVATED cpu_to_be16(3)
 static const struct tpm_input_header tpm_startup_header = {
 	.tag = TPM_TAG_RQU_COMMAND,
 	.length = cpu_to_be32(12),
 	.ordinal = TPM_ORD_STARTUP
 };
 
-static int tpm_startup(struct tpm_chip *chip, __be16 startup_type)
+int tpm_startup(struct tpm_chip *chip, u16 startup_type)
 {
 	struct tpm_cmd_t start_cmd;
 	start_cmd.header.in = tpm_startup_header;
 
-	start_cmd.params.startup_in.startup_type = startup_type;
+	start_cmd.params.startup_in.startup_type = cpu_to_be16(startup_type);
 	return tpm_transmit_cmd(chip, &start_cmd, TPM_INTERNAL_RESULT_SIZE,
 				"attempting to start the TPM");
 }
+EXPORT_SYMBOL_GPL(tpm_startup);
 
 int tpm_get_timeouts(struct tpm_chip *chip)
 {

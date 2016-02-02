@@ -41,6 +41,7 @@ struct vtpm_dev {
 
 	long state;
 #define STATE_OPENED_BIT   0
+#define STATE_INIT_VTPM    1
 
 	spinlock_t buf_lock;         /* lock for buffers */
 
@@ -51,6 +52,8 @@ struct vtpm_dev {
 
 	size_t resp_len;             /* length of queued TPM response */
 	u8 resp_buf[TPM_BUFSIZE];    /* response buffer */
+
+	struct work_struct work;     /* task that retrieves TPM timeouts */
 
 	struct list_head list;
 };
@@ -292,6 +295,9 @@ static int vtpm_tpm_op_send(struct tpm_chip *chip, u8 *buf, size_t count)
 
 	spin_unlock(&vtpm_dev->buf_lock);
 
+	/* sync for first startup command */
+	set_bit(STATE_INIT_VTPM, &vtpm_dev->state);
+
 	wake_up_interruptible(&vtpm_dev->wq);
 
 	return rc;
@@ -321,6 +327,52 @@ static const struct tpm_class_ops vtpm_tpm_ops = {
 	.req_complete_val = 0,
 	.req_canceled = vtpm_tpm_req_canceled,
 };
+
+/*
+ * Code related to the startup of the TPM 2 and startup of TPM 1.2 +
+ * retrieval of timeouts and durations.
+ */
+
+static void vtpm_dev_work(struct work_struct *work)
+{
+	struct vtpm_dev *vtpm_dev = container_of(work, struct vtpm_dev, work);
+
+	if (vtpm_dev->flags & VTPM_FLAG_TPM2)
+		tpm2_startup(vtpm_dev->chip, TPM2_SU_CLEAR);
+	else {
+		/* we must send TPM_Startup() first */
+		tpm_startup(vtpm_dev->chip, TPM_ST_CLEAR);
+		tpm_get_timeouts(vtpm_dev->chip);
+	}
+}
+
+/*
+ * vtpm_dev_start_work: Schedule the work for TPM 1.2 & 2 initialization
+ */
+static int vtpm_dev_start_work(struct vtpm_dev *vtpm_dev)
+{
+	int sig;
+
+	INIT_WORK(&vtpm_dev->work, vtpm_dev_work);
+	schedule_work(&vtpm_dev->work);
+
+	/* make sure we send the 1st command before user space can */
+	sig = wait_event_interruptible(vtpm_dev->wq,
+		test_bit(STATE_INIT_VTPM, &vtpm_dev->state));
+	if (sig) {
+		cancel_work_sync(&vtpm_dev->work);
+		return -EINTR;
+	}
+	return 0;
+}
+
+/*
+ * vtpm_dev_stop_work: prevent the scheduled work from running
+ */
+static void vtpm_dev_stop_work(struct vtpm_dev *vtpm_dev)
+{
+	cancel_work_sync(&vtpm_dev->work);
+}
 
 /*
  * Code related to creation and deletion of device pairs
@@ -449,6 +501,10 @@ static struct file *vtpm_create_device_pair(
 	}
 	vtpm_dev->chip = chip;
 
+	rc = vtpm_dev_start_work(vtpm_dev);
+	if (rc)
+		goto err_vtpm_fput;
+
 	vtpm_new_pair->fd = fd;
 	vtpm_new_pair->major = MAJOR(vtpm_dev->chip->dev.devt);
 	vtpm_new_pair->minor = MINOR(vtpm_dev->chip->dev.devt);
@@ -476,6 +532,8 @@ err_delete_vtpm_dev:
  */
 static void vtpm_delete_device_pair(struct vtpm_dev *vtpm_dev)
 {
+	vtpm_dev_stop_work(vtpm_dev);
+
 	spin_lock(&driver_lock);
 	list_del_rcu(&vtpm_dev->list);
 	spin_unlock(&driver_lock);

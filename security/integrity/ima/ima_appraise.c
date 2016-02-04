@@ -15,6 +15,7 @@
 #include <linux/magic.h>
 #include <linux/ima.h>
 #include <linux/evm.h>
+#include <linux/user_namespace.h>
 #include <crypto/hash_info.h>
 
 #include "ima.h"
@@ -344,9 +345,13 @@ void ima_inode_post_setattr(struct dentry *dentry)
 static int ima_protect_xattr(struct dentry *dentry, const char *xattr_name,
 			     const void *xattr_value, size_t xattr_value_len)
 {
+//printk(KERN_INFO "%s: xattr = %s has_xattr= %p\n", __func__, xattr_name, user_ns_find_xattr(current_user_ns(), xattr_name));
 	if (strcmp(xattr_name, XATTR_NAME_IMA) == 0) {
-		if (!capable(CAP_SYS_ADMIN))
+		if (!capable(CAP_SYS_ADMIN)) {
+			if (user_ns_find_xattr(current_user_ns(), xattr_name))
+				return 1;
 			return -EPERM;
+		}
 		return 1;
 	}
 	return 0;

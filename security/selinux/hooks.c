@@ -2965,6 +2965,8 @@ static int selinux_inode_setotherxattr(struct dentry *dentry, const char *name)
 			if (!capable(CAP_SETFCAP))
 				return -EPERM;
 		} else if (!capable(CAP_SYS_ADMIN)) {
+			if (user_ns_find_xattr(current_user_ns(), name))
+				return 0;
 			/* A different attribute in the security namespace.
 			   Restrict to administrator. */
 			return -EPERM;

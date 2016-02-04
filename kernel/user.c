@@ -59,6 +59,9 @@ struct user_namespace init_user_ns = {
 	.persistent_keyring_register_sem =
 	__RWSEM_INITIALIZER(init_user_ns.persistent_keyring_register_sem),
 #endif
+
+	.xattrs_lock		= __SPIN_LOCK_UNLOCKED(init_user_ns.xattrs_lock),
+	.writeable_xattrs	= LIST_HEAD_INIT(init_user_ns.writeable_xattrs),
 };
 EXPORT_SYMBOL_GPL(init_user_ns);
 

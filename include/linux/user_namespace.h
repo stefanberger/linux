@@ -39,9 +39,14 @@ struct user_namespace {
 	struct key		*persistent_keyring_register;
 	struct rw_semaphore	persistent_keyring_register_sem;
 #endif
+
+	struct spinlock xattrs_lock;
+	struct list_head writeable_xattrs;
 };
 
 extern struct user_namespace init_user_ns;
+
+extern bool user_ns_find_xattr(struct user_namespace *ns, const char *name);
 
 #ifdef CONFIG_USER_NS
 

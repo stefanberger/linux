@@ -715,9 +715,15 @@ __SYSCALL(__NR_userfaultfd, sys_userfaultfd)
 __SYSCALL(__NR_membarrier, sys_membarrier)
 #define __NR_mlock2 284
 __SYSCALL(__NR_mlock2, sys_mlock2)
+#define __NR_addxattrexception 285
+__SYSCALL(__NR_addxattrexception, sys_addxattrexception)
+#define __NR_removexattrexception 286
+__SYSCALL(__NR_removexattrexception, sys_removexattrexception)
+#define __NR_listxattrexception 287
+__SYSCALL(__NR_listxattrexception, sys_listxattrexception)
 
 #undef __NR_syscalls
-#define __NR_syscalls 285
+#define __NR_syscalls 288
 
 /*
  * All syscalls below here should go away really,

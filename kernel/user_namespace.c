@@ -22,6 +22,9 @@
 #include <linux/ctype.h>
 #include <linux/projid.h>
 #include <linux/fs_struct.h>
+#include <linux/syscalls.h>
+#include <linux/xattr.h>
+#include <linux/file.h>
 
 static struct kmem_cache *user_ns_cachep __read_mostly;
 static DEFINE_MUTEX(userns_state_mutex);
@@ -29,6 +32,270 @@ static DEFINE_MUTEX(userns_state_mutex);
 static bool new_idmap_permitted(const struct file *file,
 				struct user_namespace *ns, int cap_setid,
 				struct uid_gid_map *map);
+static struct user_namespace *get_user_ns_by_file(struct file *file);
+
+#define MAX_XATTR_LENGTH sizeof(XATTR_NAME_IMA)
+struct xattr_entry {
+	char name[MAX_XATTR_LENGTH];
+	struct list_head list;
+};
+
+static bool user_ns_find_xattr_nocheck(struct user_namespace *ns, const char *name)
+{
+	struct xattr_entry *pos;
+
+	rcu_read_lock();
+
+	list_for_each_entry_rcu(pos, &ns->writeable_xattrs, list) {
+		if (!strcmp(pos->name, name)) {
+			rcu_read_unlock();
+//printk(KERN_INFO "%s: Found %s\n", __func__, name);
+			return true;
+		}
+	}
+	rcu_read_unlock();
+
+//printk(KERN_INFO "%s: NOT Found %s in user_ns %p\n", __func__, name, ns);
+	return false;
+}
+
+bool user_ns_find_xattr(struct user_namespace *ns, const char *name)
+{
+	/* exceptions are only for the root user */
+	if (from_kuid(ns, current_uid()) != 0)
+		return false;
+
+	return user_ns_find_xattr_nocheck(ns, name);
+}
+
+static int user_ns_add_xattr_nocheck(struct user_namespace *ns, const char *name)
+{
+	struct xattr_entry *cx = kzalloc(sizeof(*cx), GFP_KERNEL);
+
+	if (!cx)
+		return -ENOMEM;
+
+	strcpy(cx->name, name);
+	list_add_tail_rcu(&cx->list, &ns->writeable_xattrs);
+
+	return 0;
+}
+
+int user_ns_add_xattr(struct user_namespace *ns, const char *name)
+{
+	int ret = 0;
+	struct xattr_entry *cx;
+
+	spin_lock(&ns->xattrs_lock);
+
+	if (user_ns_find_xattr_nocheck(ns, name)) {
+		ret = -EEXIST;
+		goto err;
+	}
+
+	if (strlen(name) > sizeof(cx->name)) {
+		ret = -EINVAL;
+		goto err;
+	}
+
+	ret = user_ns_add_xattr_nocheck(ns, name);
+
+ err:
+	spin_unlock(&ns->xattrs_lock);
+
+	return ret;
+}
+
+static int user_ns_del_xattr(struct user_namespace *ns, const char *name)
+{
+	int ret = -ENOENT;
+	struct xattr_entry *pos;
+
+	spin_lock(&ns->xattrs_lock);
+
+	list_for_each_entry(pos, &ns->writeable_xattrs, list) {
+		list_del_rcu(&pos->list);
+		kfree(pos);
+		ret = 0;
+		break;
+	}
+
+	spin_unlock(&ns->xattrs_lock);
+
+	return ret;
+}
+
+static void user_ns_free_xattrs(struct user_namespace *ns)
+{
+	struct xattr_entry *pos, *n;
+
+	spin_lock(&ns->xattrs_lock);
+
+	list_for_each_entry_safe(pos, n, &ns->writeable_xattrs, list) {
+		list_del(&pos->list);
+		kfree(pos);
+	}
+
+	spin_unlock(&ns->xattrs_lock);
+}
+
+static size_t user_ns_list_xattrs(struct user_namespace *ns, char *buffer,
+				  size_t buffer_size)
+{
+	size_t rest = buffer_size, size;
+	struct xattr_entry *pos;
+	size_t error = 0;
+
+	rcu_read_lock();
+
+	list_for_each_entry_rcu(pos, &ns->writeable_xattrs, list) {
+		size = strlen(pos->name) + 1;
+		if (size > rest) {
+			error = -ERANGE;
+			break;
+		}
+		strcpy(buffer, pos->name);
+		buffer += size;
+		error += size;
+	}
+	rcu_read_unlock();
+
+	return error;
+}
+
+static int common_xattr_exception(const char __user *xattrname, int fd, bool allow)
+{
+	int ret;
+	struct user_namespace *user_ns, *active, *descendant;
+	char name[MAX_XATTR_LENGTH];
+	struct file *file;
+
+printk(KERN_INFO "SYSCALL %s_write_xattr!\n", (allow) ? "allow" : "disallow");
+	/* root-only op */
+	if (from_kuid(current_user_ns(), current_uid()) != 0)
+		return -EPERM;
+
+	ret = strncpy_from_user(name, xattrname, sizeof(name));
+	if (ret < 0)
+		return ret;
+	if (ret == sizeof(name))
+		return -EINVAL;
+
+	file = proc_ns_fget(fd);
+	if (!file)
+		return -EINVAL;
+
+	ret = -EINVAL;
+	/*
+	 * Only allow security.ima to be set/removed if we currently have
+	 * SYS_ADMIN_CAPABILITY or if we have the exception in the
+	 * current namespace.
+	 */
+	if (!strcmp(name, XATTR_NAME_IMA)) {
+		if (!capable_wrt_inode_uidgid(file_inode(file), CAP_SYS_ADMIN) &&
+		    !user_ns_find_xattr_nocheck(current_user_ns(), name))
+			goto err_fput;
+	} else
+		goto err_fput;
+
+	user_ns = get_user_ns_by_file(file);
+	if (!user_ns)
+		goto err_fput;
+
+	active = current_user_ns();
+
+	/* target user ns must be a child of the current namespace */
+	descendant = user_ns;
+	while (descendant->level > active->level)
+		descendant = descendant->parent;
+
+	if (descendant != active)
+		goto err_put_user_ns;
+
+printk(KERN_INFO "SYSCALL %s_write_xattr! name=%s\n",
+       (allow) ? "allow" : "disallow", name);
+
+	if (allow)
+		ret = user_ns_add_xattr(user_ns, name);
+	else
+		ret = user_ns_del_xattr(user_ns, name);
+
+err_put_user_ns:
+	put_user_ns(user_ns);
+
+err_fput:
+	fput(file);
+
+	return ret;
+}
+
+SYSCALL_DEFINE2(addxattrexception, const char __user *,xattrname, int, fd)
+{
+	return common_xattr_exception(xattrname, fd, true);
+}
+
+SYSCALL_DEFINE2(removexattrexception, const char __user *,xattrname, int, fd)
+{
+	return common_xattr_exception(xattrname, fd, false);
+}
+
+static size_t listxattrexception(struct user_namespace *user_ns, char __user *list,
+			         size_t size)
+{
+	size_t error;
+	char *klist = NULL;
+
+	if (size) {
+		if (size > XATTR_LIST_MAX)
+			size = XATTR_LIST_MAX;
+		klist = kmalloc(size, GFP_KERNEL);
+		if (!klist)
+			return -ENOMEM;
+	}
+
+	error = user_ns_list_xattrs(user_ns, klist, size);
+	if (error > 0)
+		if (size && copy_to_user(list, klist, error))
+			error = -EFAULT;
+
+	kfree(klist);
+	return error;
+}
+
+SYSCALL_DEFINE3(listxattrexception, int, fd, char __user *, list, size_t, size)
+{
+	ssize_t error = -EINVAL;
+	struct file *file;
+	struct user_namespace *user_ns, *active, *descendant;
+
+	file = proc_ns_fget(fd);
+	if (!file)
+		return -EINVAL;
+
+	user_ns = get_user_ns_by_file(file);
+	if (!user_ns)
+		goto err_fput;
+
+	active = current_user_ns();
+	/* target user ns must be a child of the current namespace */
+	descendant = user_ns;
+	while (descendant->level > active->level)
+		descendant = descendant->parent;
+
+	if (descendant != active) {
+		error = -EPERM;
+		goto err_put_user_ns;
+	}
+
+	error = listxattrexception(user_ns, list, size);
+err_put_user_ns:
+	put_user_ns(user_ns);
+
+err_fput:
+	fput(file);
+
+	return error;
+}
 
 static void set_cred_user_ns(struct cred *cred, struct user_namespace *user_ns)
 {
@@ -107,6 +374,9 @@ int create_user_ns(struct cred *new)
 	ns->flags = parent_ns->flags;
 	mutex_unlock(&userns_state_mutex);
 
+	spin_lock_init(&ns->xattrs_lock);
+	INIT_LIST_HEAD(&ns->writeable_xattrs);
+
 	set_cred_user_ns(new, ns);
 
 #ifdef CONFIG_PERSISTENT_KEYRINGS
@@ -145,6 +415,7 @@ void free_user_ns(struct user_namespace *ns)
 		key_put(ns->persistent_keyring_register);
 #endif
 		ns_free_inum(&ns->ns);
+		user_ns_free_xattrs(ns);
 		kmem_cache_free(user_ns_cachep, ns);
 		ns = parent;
 	} while (atomic_dec_and_test(&parent->count));
@@ -948,6 +1219,20 @@ bool userns_may_setgroups(const struct user_namespace *ns)
 static inline struct user_namespace *to_user_ns(struct ns_common *ns)
 {
 	return container_of(ns, struct user_namespace, ns);
+}
+
+static struct user_namespace *get_user_ns_by_file(struct file *file)
+{
+	struct ns_common *ns;
+	struct user_namespace *user_ns;
+
+	ns = get_proc_ns(file_inode(file));
+	if (ns->ops == &userns_operations)
+		user_ns = get_user_ns(to_user_ns(ns));
+	else
+		user_ns = ERR_PTR(-EINVAL);
+
+	return user_ns;
 }
 
 static struct ns_common *userns_get(struct task_struct *task)

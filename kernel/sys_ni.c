@@ -249,3 +249,8 @@ cond_syscall(sys_execveat);
 
 /* membarrier */
 cond_syscall(sys_membarrier);
+
+/* extended attributes */
+cond_syscall(sys_addxattrexception);
+cond_syscall(sys_removexattrexception);
+cond_syscall(sys_listxattrexception);

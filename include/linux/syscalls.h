@@ -889,4 +889,8 @@ asmlinkage long sys_membarrier(int cmd, int flags);
 
 asmlinkage long sys_mlock2(unsigned long start, size_t len, int flags);
 
+asmlinkage long sys_addxattrexception(const char __user *name, int fd);
+asmlinkage long sys_removexattrexception(const char __user *name, int fd);
+asmlinkage long sys_listxattrexception(int fd, char __user *list, size_t size);
+
 #endif

@@ -88,6 +88,7 @@ struct tpm_chip *tpmm_chip_alloc(struct device *dev,
 				 const struct tpm_class_ops *ops)
 {
 	struct tpm_chip *chip;
+	int err;
 
 	chip = kzalloc(sizeof(*chip), GFP_KERNEL);
 	if (chip == NULL)
@@ -136,6 +137,12 @@ struct tpm_chip *tpmm_chip_alloc(struct device *dev,
 	chip->cdev.owner = chip->pdev->driver->owner;
 	chip->cdev.kobj.parent = &chip->dev.kobj;
 
+	err = devm_add_action(dev, (void (*)(void *)) put_device, &chip->dev);
+	if (err) {
+		put_device(&chip->dev);
+		return ERR_PTR(err);
+	}
+
 	return chip;
 }
 EXPORT_SYMBOL_GPL(tpmm_chip_alloc);
@@ -171,7 +178,7 @@ static int tpm_dev_add_device(struct tpm_chip *chip)
 static void tpm_dev_del_device(struct tpm_chip *chip)
 {
 	cdev_del(&chip->cdev);
-	device_unregister(&chip->dev);
+	device_del(&chip->dev);
 }
 
 static int tpm1_chip_register(struct tpm_chip *chip)

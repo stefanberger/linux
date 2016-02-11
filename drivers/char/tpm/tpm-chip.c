@@ -120,17 +120,17 @@ static void tpm_dev_release(struct device *dev)
 }
 
 /**
- * tpmm_chip_alloc() - allocate a new struct tpm_chip instance
- * @dev: device to which the chip is associated
+ * tpm_chip_alloc() - allocate a new struct tpm_chip instance
+ * @pdev: device to which the chip is associated
+ *        At this point pdev mst be initialized, but does not have to
+ *        be registered
  * @ops: struct tpm_class_ops instance
  *
  * Allocates a new struct tpm_chip instance and assigns a free
- * device number for it. Caller does not have to worry about
- * freeing the allocated resources. When the devices is removed
- * devres calls tpmm_chip_remove() to do the job.
+ * device number for it. Must be paired with put_device(&chip->dev).
  */
-struct tpm_chip *tpmm_chip_alloc(struct device *dev,
-				 const struct tpm_class_ops *ops)
+struct tpm_chip *tpm_chip_alloc(struct device *dev,
+				const struct tpm_class_ops *ops)
 {
 	struct tpm_chip *chip;
 	int err;
@@ -143,10 +143,10 @@ struct tpm_chip *tpmm_chip_alloc(struct device *dev,
 	mutex_init(&chip->tpm_mutex);
 	INIT_LIST_HEAD(&chip->list);
 
-	chip->ops = ops;
-
 	spin_lock(&driver_lock);
 	chip->dev_num = find_first_zero_bit(dev_mask, TPM_NUM_DEVICES);
+	if (chip->dev_num < TPM_NUM_DEVICES)
+		set_bit(chip->dev_num, dev_mask);
 	spin_unlock(&driver_lock);
 
 	if (chip->dev_num >= TPM_NUM_DEVICES) {
@@ -155,9 +155,9 @@ struct tpm_chip *tpmm_chip_alloc(struct device *dev,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	set_bit(chip->dev_num, dev_mask);
+	chip->ops = ops;
 
-	dev_set_drvdata(dev, chip);
+	device_initialize(&chip->dev);
 
 	chip->dev.class = tpm_class;
 	chip->dev.release = tpm_dev_release;
@@ -175,23 +175,44 @@ struct tpm_chip *tpmm_chip_alloc(struct device *dev,
 	if (err)
 		goto out;
 
-	device_initialize(&chip->dev);
-
 	cdev_init(&chip->cdev, &tpm_fops);
 	chip->cdev.owner = dev->driver->owner;
 	chip->cdev.kobj.parent = &chip->dev.kobj;
-
-	err = devm_add_action(dev, (void (*)(void *)) put_device, &chip->dev);
-	if (err) {
-		put_device(&chip->dev);
-		return ERR_PTR(err);
-	}
 
 	return chip;
 
 out:
 	put_device(&chip->dev);
 	return ERR_PTR(err);
+}
+EXPORT_SYMBOL_GPL(tpm_chip_alloc);
+
+/**
+ * tpmm_chip_alloc() - allocate a new struct tpm_chip instance
+ * @pdev: parent device to which the chip is associated
+ * @ops: struct tpm_class_ops instance
+ *
+ * Same as tpm_chip_alloc except devm is used to do the put_device
+ */
+struct tpm_chip *tpmm_chip_alloc(struct device *pdev,
+				 const struct tpm_class_ops *ops)
+{
+	struct tpm_chip *chip;
+	int err;
+
+	chip = tpm_chip_alloc(pdev, ops);
+	if (IS_ERR(chip))
+		return chip;
+
+	err = devm_add_action(pdev, (void (*)(void *)) put_device, &chip->dev);
+	if (err) {
+		put_device(&chip->dev);
+		return ERR_PTR(err);
+	}
+
+	dev_set_drvdata(pdev, chip);
+
+	return chip;
 }
 EXPORT_SYMBOL_GPL(tpmm_chip_alloc);
 

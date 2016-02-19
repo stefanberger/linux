@@ -283,9 +283,13 @@ static const struct attribute_group tpm_dev_group = {
 
 int tpm_sysfs_add_device(struct tpm_chip *chip)
 {
-	int err;
-	err = sysfs_create_group(&chip->dev.parent->kobj,
-				 &tpm_dev_group);
+	int err = 0;
+
+	if (!(chip->flags & TPM_CHIP_FLAG_VIRTUAL))
+		err = sysfs_create_group(&chip->dev.parent->kobj,
+					 &tpm_dev_group);
+	else
+		chip->groups[chip->groups_cnt++] = &tpm_dev_group;
 
 	if (err)
 		dev_err(&chip->dev,
@@ -300,5 +304,6 @@ void tpm_sysfs_del_device(struct tpm_chip *chip)
 	 * synchronizes this removal so that no callbacks are running or can
 	 * run again
 	 */
-	sysfs_remove_group(&chip->dev.parent->kobj, &tpm_dev_group);
+	if (!(chip->flags & TPM_CHIP_FLAG_VIRTUAL))
+		sysfs_remove_group(&chip->dev.parent->kobj, &tpm_dev_group);
 }

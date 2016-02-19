@@ -765,7 +765,7 @@ static int tpm_tis_init(struct device *dev, struct tpm_info *tpm_info,
 				 TPM_INT_VECTOR(chip->vendor.locality));
 			if (devm_request_irq
 			    (dev, i, tis_int_probe, IRQF_SHARED,
-			     chip->devname, chip) != 0) {
+			     dev_name(&chip->dev), chip) != 0) {
 				dev_info(&chip->dev,
 					 "Unable to request irq: %d for probe\n",
 					 i);
@@ -817,7 +817,7 @@ static int tpm_tis_init(struct device *dev, struct tpm_info *tpm_info,
 			 TPM_INT_VECTOR(chip->vendor.locality));
 		if (devm_request_irq
 		    (dev, chip->vendor.irq, tis_int_handler, IRQF_SHARED,
-		     chip->devname, chip) != 0) {
+		     dev_name(&chip->dev), chip) != 0) {
 			dev_info(&chip->dev,
 				 "Unable to request irq: %d for use\n",
 				 chip->vendor.irq);

@@ -3092,7 +3092,10 @@ static int selinux_inode_setotherxattr(struct dentry *dentry, const char *name)
 	if (!strncmp(name, XATTR_SECURITY_PREFIX,
 		     sizeof XATTR_SECURITY_PREFIX - 1)) {
 		if (!strcmp(name, XATTR_NAME_CAPS)) {
-			if (!capable(CAP_SETFCAP))
+			struct inode *inode = d_backing_inode(dentry);
+			if (!inode)
+				return -EINVAL;
+			if (!capable_wrt_inode_uidgid(inode, CAP_SETFCAP))
 				return -EPERM;
 		} else if (!capable(CAP_SYS_ADMIN)) {
 			/* A different attribute in the security namespace.

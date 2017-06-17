@@ -133,11 +133,106 @@ xattr_permission(struct inode *inode, const char *name, int mask)
 	return inode_permission(inode, mask);
 }
 
+/*
+ * xattr_userns_name: modify the name of an extended attribute if accessed
+ *                    from a user namespace
+ *
+ * In a user namespace we prevent read/write accesses to the _host's_
+ * security.foo to protect these extended attributes.
+ *
+ * Reading: Reading security.foo from a user namespace will read
+ * security.foo@uid=<uid> instead. Reading security.foo@uid=<uid> directly
+ * also works. In general, all security.foo*, except for security.foo of the
+ * host, can be read from a user namespace.
+ *
+ * Writing: Writing security.foo from a user namespace will write
+ * security.foo@uid=<uid> instead. Writing security.foo@uid=<uid> directly
+ * also works. No other security.foo* attributes, including the security.foo
+ * of the host, can be written to. All security.foo@* are 'reserved'.
+ *
+ * Removing: The same rules for writing apply to removing of extended
+ * attributes from a user namespace.
+ *
+ * This function returns a buffer with either the original name or the
+ * user namespace adjusted name of the extended attribute.
+ */
+char *
+xattr_userns_name(const char *fullname, const char *suffix, int is_write)
+{
+	size_t buflen;
+	char *buffer;
+	kuid_t uid = make_kuid(current_user_ns(), 0);
+	uid_t p_uid;
+	int n;
+	char d;
+	size_t len = 0;
+
+	if (!suffix)
+		return NULL;
+
+	buflen = strlen(suffix) + sizeof("@uid=") - 1 +
+		 sizeof(__stringify(UINT32_MAX)) - 1 + 1;
+	buffer = kmalloc(buflen, GFP_KERNEL);
+
+	if (!buffer)
+		return ERR_PTR(-ENOMEM);
+
+	/* no name changes for init_user_ns or uid == 0 */
+	if (current_user_ns() == &init_user_ns || uid.val == 0)
+		goto out_copy;
+
+	/* only security.capability will be changed here */
+	if (strncmp(fullname, XATTR_NAME_CAPS, sizeof(XATTR_NAME_CAPS) - 1))
+		goto out_copy;
+
+	/* read security.foo? --> read security.foo@uid=<uid> instead */
+	if (!strcmp(fullname, XATTR_NAME_CAPS)) {
+		/* append @uid=<uid> to security.foo */
+		scnprintf(buffer, buflen, "%s@uid=%d", suffix, uid.val);
+		return buffer;
+	}
+
+	if (!is_write)
+		/* reading: all can be read */
+		goto out_copy;
+
+	/*
+	 * only allowed to write to security.capability@uid=<uid>
+	 * with uid of root user. security.capability@uis=<uid><suffix>
+	 * is 'reserved'.
+	 */
+	if (!strncmp(fullname, XATTR_NAME_CAPS"@",
+		     sizeof(XATTR_NAME_CAPS) - 1 + sizeof("@") - 1)) {
+		len = strchr(fullname, '@') - fullname + 1;
+	}
+	if (len) {
+		/*
+		 * This has to match exactly @uid=<uid> with
+		 * uid of the root user. Anything else is forbidden.
+		 */
+		n = sscanf(&fullname[len],"uid=%u%c", &p_uid, &d);
+		if (uid.val != p_uid || n != 1)
+			goto err_eperm;
+	} else
+		goto err_eperm;
+
+out_copy:
+	strncpy(buffer, suffix, buflen);
+	return buffer;
+
+err_eperm:
+	kfree(buffer);
+	return ERR_PTR(-EPERM);
+}
+
 int
 __vfs_setxattr(struct dentry *dentry, struct inode *inode, const char *name,
 	       const void *value, size_t size, int flags)
 {
 	const struct xattr_handler *handler;
+	char *nsuffix;
+	const char *fullname = name;
+	int ret;
 
 	handler = xattr_resolve_name(inode, &name);
 	if (IS_ERR(handler))
@@ -146,7 +241,12 @@ __vfs_setxattr(struct dentry *dentry, struct inode *inode, const char *name,
 		return -EOPNOTSUPP;
 	if (size == 0)
 		value = "";  /* empty EA, do not remove */
-	return handler->set(handler, dentry, inode, name, value, size, flags);
+	nsuffix = xattr_userns_name(fullname, name, true);
+	if (IS_ERR(nsuffix))
+		return PTR_ERR(nsuffix);
+	ret = handler->set(handler, dentry, inode, nsuffix, value, size, flags);
+	kfree(nsuffix);
+	return ret;
 }
 EXPORT_SYMBOL(__vfs_setxattr);
 
@@ -302,13 +402,21 @@ __vfs_getxattr(struct dentry *dentry, struct inode *inode, const char *name,
 	       void *value, size_t size)
 {
 	const struct xattr_handler *handler;
+	char *nsuffix;
+	const char *fullname = name;
+	int ret;
 
 	handler = xattr_resolve_name(inode, &name);
 	if (IS_ERR(handler))
 		return PTR_ERR(handler);
 	if (!handler->get)
 		return -EOPNOTSUPP;
-	return handler->get(handler, dentry, inode, name, value, size);
+	nsuffix = xattr_userns_name(fullname, name, false);
+	if (IS_ERR(nsuffix))
+		return PTR_ERR(nsuffix);
+	ret = handler->get(handler, dentry, inode, nsuffix, value, size);
+	kfree(nsuffix);
+	return ret;
 }
 EXPORT_SYMBOL(__vfs_getxattr);
 
@@ -328,8 +436,13 @@ vfs_getxattr(struct dentry *dentry, const char *name, void *value, size_t size)
 
 	if (!strncmp(name, XATTR_SECURITY_PREFIX,
 				XATTR_SECURITY_PREFIX_LEN)) {
+		int ret;
 		const char *suffix = name + XATTR_SECURITY_PREFIX_LEN;
-		int ret = xattr_getsecurity(inode, suffix, value, size);
+		char *nsuffix = xattr_userns_name(name, suffix, false);
+		if (IS_ERR(nsuffix))
+			return PTR_ERR(nsuffix);
+		ret = xattr_getsecurity(inode, nsuffix, value, size);
+		kfree(nsuffix);
 		/*
 		 * Only overwrite the return value if a security module
 		 * is actually active.
@@ -342,6 +455,64 @@ nolsm:
 	return __vfs_getxattr(dentry, inode, name, value, size);
 }
 EXPORT_SYMBOL_GPL(vfs_getxattr);
+
+/*
+ * A list of extended attributes that are supported in user namespaces
+ */
+static const char *filtered_xattrs[] = {
+	XATTR_NAME_CAPS,
+	NULL
+};
+
+static int
+_xattr_is_userns_filtered(const char *name)
+{
+	int i = 0;
+
+	while (filtered_xattrs[i]) {
+		if (!strcmp(filtered_xattrs[i], name))
+			return true;
+		i++;
+	}
+	return false;
+}
+
+/*
+ * xattr_userns_filter: Filter out xattr names for user namespaces
+ *
+ * In a user namespace we do not present all extended attributes to the
+ * user. We filter out those that are in the list above.
+ */
+static ssize_t
+xattr_userns_filter(char *list, ssize_t size)
+{
+	char *nlist = NULL;
+	size_t s_off, d_off, len;
+
+	if (!list || current_user_ns() == &init_user_ns || size <= 0)
+		return size;
+
+	/* some of the xattrs are never shown */
+	nlist = kmalloc(size, GFP_KERNEL);
+	if (!nlist)
+		return -ENOMEM;
+
+	s_off = d_off = 0;
+	while (s_off < size) {
+		len = strlen(&list[s_off]);
+		if (!len)
+			break;
+		if (!_xattr_is_userns_filtered(&list[s_off])) {
+			strcpy(&nlist[d_off], &list[s_off]);
+			d_off += len + 1;
+		}
+		s_off += len + 1;
+	}
+	memcpy(list, nlist, d_off);
+	kfree(nlist);
+
+	return d_off;
+}
 
 ssize_t
 vfs_listxattr(struct dentry *dentry, char *list, size_t size)
@@ -360,6 +531,9 @@ vfs_listxattr(struct dentry *dentry, char *list, size_t size)
 		if (size && error > size)
 			error = -ERANGE;
 	}
+	if (error > 0) {
+		error = xattr_userns_filter(list, error);
+	}
 	return error;
 }
 EXPORT_SYMBOL_GPL(vfs_listxattr);
@@ -369,13 +543,21 @@ __vfs_removexattr(struct dentry *dentry, const char *name)
 {
 	struct inode *inode = d_inode(dentry);
 	const struct xattr_handler *handler;
+	char *nsuffix;
+	const char *fullname = name;
+	int ret;
 
 	handler = xattr_resolve_name(inode, &name);
 	if (IS_ERR(handler))
 		return PTR_ERR(handler);
 	if (!handler->set)
 		return -EOPNOTSUPP;
-	return handler->set(handler, dentry, inode, name, NULL, 0, XATTR_REPLACE);
+	nsuffix = xattr_userns_name(fullname, name, true);
+	if (IS_ERR(nsuffix))
+		return PTR_ERR(nsuffix);
+	ret = handler->set(handler, dentry, inode, nsuffix, NULL, 0, XATTR_REPLACE);
+	kfree(nsuffix);
+	return ret;
 }
 EXPORT_SYMBOL(__vfs_removexattr);
 

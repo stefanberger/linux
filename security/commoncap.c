@@ -307,11 +307,8 @@ static inline void bprm_clear_caps(struct linux_binprm *bprm)
  */
 int cap_inode_need_killpriv(struct dentry *dentry)
 {
-	struct inode *inode = d_backing_inode(dentry);
-	int error;
-
-	error = __vfs_getxattr(dentry, inode, XATTR_NAME_CAPS, NULL, 0);
-	return error > 0;
+	return __vfs_hasxattr_prefix(dentry, XATTR_NAME_CAPS,
+				     sizeof(XATTR_NAME_CAPS) - 1);
 }
 
 /**
@@ -326,7 +323,7 @@ int cap_inode_killpriv(struct dentry *dentry)
 {
 	int error;
 
-	error = __vfs_removexattr(dentry, XATTR_NAME_CAPS);
+	error = __vfs_removexattr_prefix(dentry, XATTR_NAME_CAPS);
 	if (error == -EOPNOTSUPP)
 		error = 0;
 	return error;
@@ -660,15 +657,23 @@ int cap_bprm_secureexec(struct linux_binprm *bprm)
 int cap_inode_setxattr(struct dentry *dentry, const char *name,
 		       const void *value, size_t size, int flags)
 {
-	if (!strcmp(name, XATTR_NAME_CAPS)) {
-		if (!capable(CAP_SETFCAP))
+	if (strncmp(name, XATTR_SECURITY_PREFIX,
+		    sizeof(XATTR_SECURITY_PREFIX) - 1) != 0)
+		return 0;
+
+	if (strncmp(name, XATTR_NAME_CAPS,
+		    sizeof(XATTR_NAME_CAPS) - 1) == 0) {
+		struct inode *inode = d_backing_inode(dentry);
+
+		if (!inode)
+			return -EINVAL;
+		if (!capable_wrt_inode_uidgid(inode, CAP_SETFCAP))
 			return -EPERM;
+
 		return 0;
 	}
 
-	if (!strncmp(name, XATTR_SECURITY_PREFIX,
-		     sizeof(XATTR_SECURITY_PREFIX) - 1) &&
-	    !capable(CAP_SYS_ADMIN))
+	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 	return 0;
 }
@@ -686,15 +691,23 @@ int cap_inode_setxattr(struct dentry *dentry, const char *name,
  */
 int cap_inode_removexattr(struct dentry *dentry, const char *name)
 {
-	if (!strcmp(name, XATTR_NAME_CAPS)) {
-		if (!capable(CAP_SETFCAP))
+	if (strncmp(name, XATTR_SECURITY_PREFIX,
+		    sizeof(XATTR_SECURITY_PREFIX) - 1) != 0)
+		return 0;
+
+	if (strncmp(name, XATTR_NAME_CAPS,
+		    sizeof(XATTR_NAME_CAPS) - 1) == 0) {
+		struct inode *inode = d_backing_inode(dentry);
+
+		if (!inode)
+			return -EINVAL;
+		if (!capable_wrt_inode_uidgid(inode, CAP_SETFCAP))
 			return -EPERM;
+
 		return 0;
 	}
 
-	if (!strncmp(name, XATTR_SECURITY_PREFIX,
-		     sizeof(XATTR_SECURITY_PREFIX) - 1) &&
-	    !capable(CAP_SYS_ADMIN))
+	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 	return 0;
 }

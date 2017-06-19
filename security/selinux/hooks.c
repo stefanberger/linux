@@ -3091,7 +3091,8 @@ static int selinux_inode_setotherxattr(struct dentry *dentry, const char *name)
 
 	if (!strncmp(name, XATTR_SECURITY_PREFIX,
 		     sizeof XATTR_SECURITY_PREFIX - 1)) {
-		if (!strcmp(name, XATTR_NAME_CAPS)) {
+		if (!strncmp(name, XATTR_NAME_CAPS,
+			     sizeof XATTR_NAME_CAPS -1)) {
 			struct inode *inode = d_backing_inode(dentry);
 			if (!inode)
 				return -EINVAL;

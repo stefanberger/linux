@@ -141,9 +141,8 @@ xattr_permission(struct inode *inode, const char *name, int mask)
  * security.foo to protect these extended attributes.
  *
  * Reading: Reading security.foo from a user namespace will read
- * security.foo@uid=<uid> instead. Reading security.foo@uid=<uid> directly
- * also works. In general, all security.foo*, except for security.foo of the
- * host, can be read from a user namespace.
+ * security.foo@uid=<uid> instead. All security.foo*, except for
+ * security.foo of the host, can be read from a user namespace.
  *
  * Writing: Writing security.foo from a user namespace will write
  * security.foo@uid=<uid> instead. Writing security.foo@uid=<uid> directly
@@ -212,8 +211,6 @@ xattr_userns_name(const char *fullname, const char *suffix, int is_write)
 		n = sscanf(&fullname[len],"uid=%u%c", &p_uid, &d);
 		if (n != 1)
 			goto err_eperm;
-		if (uid.val == p_uid)
-			goto out_copy;
 		tuid = make_kuid(current_user_ns(), p_uid);
 		if (tuid.val == -1) {
 			/* cannot read or write without valid mapping */

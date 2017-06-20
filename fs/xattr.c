@@ -134,8 +134,160 @@ xattr_permission(struct inode *inode, const char *name, int mask)
 }
 
 /*
- * xattr_userns_name: modify the name of an extended attribute if accessed
- *                    from a user namespace
+ * A list of extended attributes that are supported in user namespaces
+ */
+static const char *userns_xattrs[] = {
+	XATTR_NAME_CAPS,
+	NULL
+};
+
+/*
+ * _xattrs_is_userns_supported - Check whether an xattr is supported in userns
+ *
+ * @name:   full name of the extended attribute
+ * @prefix: do a prefix match (true) or a full match (false)
+ *
+ * This function returns < 0 if not supported, an index into userns_xattrs[]
+ * otherwise.
+ */
+static int
+_xattr_is_userns_supported(const char *name, int prefix)
+{
+	int i;
+
+	if (!name)
+		return -1;
+
+	for (i = 0; userns_xattrs[i]; i++) {
+		if (prefix) {
+			if (!strncmp(userns_xattrs[i], name,
+				     strlen(userns_xattrs[i]))) {
+				return i;
+			} else if (!strcmp(userns_xattrs[i], name)) {
+				return i;
+			}
+		}
+	}
+	return -1;
+}
+
+/*
+ * _xattr_check_userns_filtered - Check whether the given xattr name is filtered
+ *
+ * @name: full name of the extended attribute
+ *
+ * This function returns NULL if the name is to be filtered. Otherwise it can
+ * return the input buffer or a new buffer that the caller needs to free. The
+ * new buffer contains a rewritten extended attribute whose string length may
+ * exceed that of the given name.
+ */
+static char *
+_xattr_check_userns_filtered(char *name)
+{
+	int idx, n;
+	size_t len = 0, buflen;
+	char *buffer;
+	uid_t p_uid, muid;
+	char d;
+	kuid_t tuid;
+
+	/* prefix-match name against supported attributes */
+	idx = _xattr_is_userns_supported(name, true);
+	if (idx < 0)
+		return name;
+
+	/* exact match ? */
+	len = strlen(userns_xattrs[idx]);
+	if (name[len] == 0)
+		return NULL;
+
+	n = sscanf(&name[len], "@uid=%u%c", &p_uid, &d);
+	if (n != 1)
+		return NULL;
+
+	/* do we have a mapping of the uid? */
+	tuid.val = p_uid;
+	muid = from_kuid(current_user_ns(), tuid);
+	if (muid == -1)
+		return NULL;
+
+	buflen = len + sizeof("@uid=") - 1 +
+	         sizeof(__stringify(UINT32_MAX)) - 1 + 1;
+	buffer = kmalloc(buflen, GFP_KERNEL);
+	if (!buffer)
+		return ERR_PTR(-ENOMEM);
+
+	if (muid)
+		snprintf(buffer, buflen, "%s@uid=%u", userns_xattrs[idx],
+			 muid);
+	else
+		snprintf(buffer, buflen, "%s", userns_xattrs[idx]);
+
+	return buffer;
+}
+
+/*
+ * xattr_userns_filter - Filter out xattr names for user namespaces
+ *
+ * In a user namespace we do not present all extended attributes to the
+ * user. We filter out those that are in the list above. Besides that we
+ * filter out those with @uid=<uid> when there is no mapping for that uid
+ * in the current userns.
+ *
+ * @list:        list of 0-byte separated xattr names
+ * @size:        the used size of the list
+ * @list_maxlen: allocated buffer size of list
+ */
+static ssize_t
+xattr_userns_filter(char *list, ssize_t size, size_t list_maxlen)
+{
+	char *nlist = NULL;
+	size_t s_off, len, nlen;
+	ssize_t d_off;
+	char *name, *newname;
+
+	if (!list || current_user_ns() == &init_user_ns || size <= 0)
+		return size;
+
+	/* some of the xattrs are never shown */
+	nlist = kmalloc(size, GFP_KERNEL);
+	if (!nlist)
+		return -ENOMEM;
+
+	s_off = d_off = 0;
+	while (s_off < size) {
+		name = &list[s_off];
+
+		len = strlen(name);
+		if (!len)
+			break;
+
+		newname = _xattr_check_userns_filtered(name);
+		if (IS_ERR(newname)) {
+			d_off = PTR_ERR(newname);
+			goto out_free;
+		}
+		if (newname) {
+			nlen = strlen(newname);
+			if (nlen + 1 > list_maxlen)
+				break;
+			strcpy(&nlist[d_off], newname);
+			d_off += nlen + 1;
+			if (newname != name)
+				kfree(newname);
+		}
+		s_off += len + 1;
+	}
+	memcpy(list, nlist, d_off);
+out_free:
+	kfree(nlist);
+
+	return d_off;
+}
+
+/*
+ * xattr_userns_name - modify the name of an extended attribute if accessed
+ *                     from a user namespace
  *
  * In a user namespace we prevent read/write accesses to the _host's_
  * security.foo to protect these extended attributes.
@@ -156,6 +308,10 @@ xattr_permission(struct inode *inode, const char *name, int mask)
  *
  * This function returns a buffer with either the original name or the
  * user namespace adjusted name of the extended attribute.
+ *
+ * @fullname: the full name of the extended attribute, e.g. security.foo
+ * @suffix:   the suffix of the extended attribute, e.g. foo
+ * @is_write: whether this is for writing an xattr
  */
 char *
 xattr_userns_name(const char *fullname, const char *suffix, int is_write)
@@ -165,7 +321,7 @@ xattr_userns_name(const char *fullname, const char *suffix, int is_write)
 	kuid_t uid = make_kuid(current_user_ns(), 0);
 	kuid_t tuid;
 	uid_t p_uid;
-	int n;
+	int n, idx;
 	char d;
 	size_t len = 0, slen;
 
@@ -183,43 +339,44 @@ xattr_userns_name(const char *fullname, const char *suffix, int is_write)
 	if (current_user_ns() == &init_user_ns || uid.val == 0)
 		goto out_copy;
 
-	/* only security.capability will be changed here */
-	if (strncmp(fullname, XATTR_NAME_CAPS, sizeof(XATTR_NAME_CAPS) - 1))
+	/* only security.foo will be changed here - prefix match here */
+	idx = _xattr_is_userns_supported(fullname, true);
+	if (idx == -1)
 		goto out_copy;
 
 	/* read security.foo? --> read security.foo@uid=<uid> instead */
-	if (!strcmp(fullname, XATTR_NAME_CAPS)) {
+	len = strlen(userns_xattrs[idx]);
+	if (fullname[len] == 0) {
 		/* append @uid=<uid> to security.foo */
-		scnprintf(buffer, buflen, "%s@uid=%u", suffix, uid.val);
+		snprintf(buffer, buflen, "%s@uid=%u", suffix, uid.val);
 		return buffer;
 	}
 
-	/*
-	 * only allowed to write to security.capability@uid=<uid>
-	 * with uid of root user or a mapped uid.
-	 # security.capability@uis=<uid><suffix> is 'reserved'.
-	 */
-	if (!strncmp(fullname, XATTR_NAME_CAPS"@",
-		     sizeof(XATTR_NAME_CAPS) - 1 + sizeof("@") - 1)) {
-		len = strchr(fullname, '@') - fullname + 1;
-	}
-	if (len) {
+	if (fullname[len] == '@') {
+		len++;
 		/*
 		 * We have a '@' in the name.
 		 * The <uid> in @uid=<uid> has to match a mapped uid.
 		 */
-		n = sscanf(&fullname[len],"uid=%u%c", &p_uid, &d);
+		n = sscanf(&fullname[len], "uid=%u%c", &p_uid, &d);
 		if (n != 1)
 			goto err_eperm;
+
 		tuid = make_kuid(current_user_ns(), p_uid);
 		if (tuid.val == -1) {
 			/* cannot read or write without valid mapping */
 			goto err_eperm;
 		}
+
+		/* suffix of fullname must have '@' */
 		ptr = strchr(suffix, '@');
+		if (!ptr)
+			goto err_eperm;
 		slen = ptr - suffix;
+
 		snprintf(buffer, slen + 1, "%s", suffix);
 		snprintf(&buffer[slen], buflen - slen, "@uid=%u", tuid.val);
+
 		return buffer;
 	} else {
 		if (is_write)
@@ -465,122 +622,6 @@ nolsm:
 	return __vfs_getxattr(dentry, inode, name, value, size);
 }
 EXPORT_SYMBOL_GPL(vfs_getxattr);
-
-/*
- * A list of extended attributes that are supported in user namespaces
- */
-static const char *filtered_xattrs[] = {
-	XATTR_NAME_CAPS,
-	NULL
-};
-
-/*
- * _xattr_check_userns_filtered: Check whether the given xattr name is filtered
- *
- * This function returns NULL if the name is to be filtered. Otherwise it can
- * return the input buffer or a new buffer that the caller needs to free.
- */
-static char *
-_xattr_check_userns_filtered(char *name)
-{
-	int i, n;
-	size_t len = 0, buflen;
-	char *buffer;
-	uid_t p_uid, muid;
-	char d;
-	kuid_t tuid;
-
-	for (i = 0; filtered_xattrs[i]; i++) {
-		len = strlen(filtered_xattrs[i]);
-		/* prefix matches? */
-		if (!strncmp(filtered_xattrs[i], name, len)) {
-			/* exact match ? */
-			if (name[len] == 0)
-				return NULL;
-			n = sscanf(&name[len], "@uid=%u%c", &p_uid, &d);
-			if (n != 1)
-				return NULL;
-			tuid.val = p_uid;
-
-			/* do we have a mapping of the uid? */
-			muid = from_kuid(current_user_ns(), tuid);
-			if (muid == -1)
-				return NULL;
-
-			buflen = len + sizeof("@uid=") - 1 +
-			         sizeof(__stringify(UINT32_MAX)) - 1 + 1;
-			buffer = kmalloc(buflen, GFP_KERNEL);
-			if (!buffer)
-				return ERR_PTR(-ENOMEM);
-			if (muid)
-				scnprintf(buffer, buflen, "%s@uid=%u",
-					  filtered_xattrs[i], muid);
-			else
-				scnprintf(buffer, buflen, "%s",
-					  filtered_xattrs[i]);
-			return buffer;
-		}
-	}
-
-	return name;
-}
-
-/*
- * xattr_userns_filter: Filter out xattr names for user namespaces
- *
- * In a user namespace we do not present all extended attributes to the
- * user. We filter out those that are in the list above. Besides that we
- * filter out those with @uid=<uid> when there is no mapping for that uid
- * in the current userns.
- *
- * @list: list of 0-byte separated xattr names
- * @size: the size of the list
- * @list_maxlen: allocated buffer size of list
- */
-static ssize_t
-xattr_userns_filter(char *list, ssize_t size, size_t list_maxlen)
-{
-	char *nlist = NULL;
-	size_t s_off, len, nlen;
-	ssize_t d_off;
-	char *name, *newname;
-
-	if (!list || current_user_ns() == &init_user_ns || size <= 0)
-		return size;
-
-	/* some of the xattrs are never shown */
-	nlist = kmalloc(size, GFP_KERNEL);
-	if (!nlist)
-		return -ENOMEM;
-
-	s_off = d_off = 0;
-	while (s_off < size) {
-		name= &list[s_off];
-		len = strlen(name);
-		if (!len)
-			break;
-		newname = _xattr_check_userns_filtered(name);
-		if (IS_ERR(newname)) {
-			d_off = PTR_ERR(newname);
-			goto out_free;
-		}
-		if (newname) {
-			nlen = strlen(newname);
-			if (nlen + 1 > list_maxlen)
-				break;
-			strcpy(&nlist[d_off], newname);
-			d_off += nlen + 1;
-			if (newname != name)
-				kfree(newname);
-		}
-		s_off += len + 1;
-	}
-	memcpy(list, nlist, d_off);
-out_free:
-	kfree(nlist);
-
-	return d_off;
-}
 
 ssize_t
 vfs_listxattr(struct dentry *dentry, char *list, size_t size)

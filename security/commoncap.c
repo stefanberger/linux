@@ -664,7 +664,8 @@ int cap_inode_setxattr(struct dentry *dentry, const char *name,
 		    sizeof(XATTR_SECURITY_PREFIX) - 1) != 0)
 		return 0;
 
-	if (strcmp(name, XATTR_NAME_CAPS) == 0) {
+	if (strncmp(name, XATTR_NAME_CAPS,
+		    sizeof(XATTR_NAME_CAPS) - 1) == 0) {
 		struct inode *inode = d_backing_inode(dentry);
 		if (!inode)
 			return -EINVAL;
@@ -696,7 +697,8 @@ int cap_inode_removexattr(struct dentry *dentry, const char *name)
 		    sizeof(XATTR_SECURITY_PREFIX) - 1) != 0)
 		return 0;
 
-	if (strcmp(name, XATTR_NAME_CAPS) == 0) {
+	if (strncmp(name, XATTR_NAME_CAPS,
+		    sizeof(XATTR_NAME_CAPS) - 1) == 0) {
 		struct inode *inode = d_backing_inode(dentry);
 		if (!inode)
 			return -EINVAL;

@@ -190,6 +190,168 @@ xattr_is_userns_supported(const char *name, int prefix, int *is_prefix)
 }
 
 /*
+ * xattr_write_uid - print a string in the format of "%s@uid=%u%s", which
+ *                   includes a prefix and suffix string
+ *
+ * @uid:     the uid
+ * @prefix:  prefix string; may be NULL
+ * @suffix:  suffix string; may be NULL
+ * @is_last: whether this is the last string in the chain; if so and uid==0
+ *           then we can omit the printing of @uid=0
+ *
+ * This function returns a buffer with the string, or a NULL pointer in
+ * case of out-of-memory error.
+ */
+static char *
+xattr_write_uid(uid_t uid, const char *prefix, const char *suffix,
+		int is_last)
+{
+	size_t buflen;
+	char *buffer;
+
+	buflen = sizeof("@uid=") - 1 + sizeof("4294967295") - 1 + 1;
+	if (prefix)
+		buflen += strlen(prefix);
+	if (suffix)
+		buflen += strlen(suffix);
+
+	buffer = kmalloc(buflen, GFP_KERNEL);
+	if (!buffer)
+		return NULL;
+
+	if (uid == 0 && is_last)
+		*buffer = 0;
+	else
+		sprintf(buffer, "%s@uid=%u%s",
+			(prefix) ? prefix : "",
+			uid,
+			(suffix) ? suffix : "");
+
+	return buffer;
+}
+
+/*
+ * xattr_parse_uid_from_kuid - recursively parse string in the format
+ *                             @uid=<uid>@uid=<uid>@... alongside the
+ *                             usernamespaces and check mappings
+ *
+ * @uidstr   : string like @uid=<uid>@uid=<uid>@...
+ * @userns   : the user namespace to walk alongside
+ * @n_uidstr : returned pointer holding the resulting @uid=<uid>@... with all
+ *             remappings done
+ *
+ * This function returns an error code or 0 in case of success. In case
+ * of success, 'n_uidstr' will hold a valid string.
+ */
+static int
+xattr_parse_uid_from_kuid(const char *uidstr, struct user_namespace *userns,
+			  char **n_uidstr)
+{
+	char *ptr, *ntail;
+	int n, error;
+	uid_t muid, p_uid;
+	char d;
+	kuid_t tuid;
+
+	*n_uidstr = NULL;
+
+	if (userns == NULL)
+		return -EINVAL;
+
+	n = sscanf(uidstr, "@uid=%u%c", &p_uid, &d);
+	if (n == 0)
+		return -EINVAL;
+	if (n == 2 && d != '@')
+		return -EINVAL;
+
+	/* do we have a mapping of the uid? */
+	tuid = KUIDT_INIT(p_uid);
+	muid = from_kuid(userns, tuid);
+	if (muid == -1)
+		return -ENOENT;
+
+	if (n == 1) {
+		*n_uidstr = xattr_write_uid(muid, NULL, NULL, true);
+		if (!*n_uidstr)
+			return -ENOMEM;
+
+		return 0;
+	}
+
+	/* n == 2 */
+	ptr = strchr(&uidstr[1], '@');
+	error = xattr_parse_uid_from_kuid(ptr, userns->parent, &ntail);
+	if (error)
+		return error;
+
+	*n_uidstr = xattr_write_uid(muid, NULL, ntail, false);
+	kfree(ntail);
+	if (!*n_uidstr)
+		return -ENOMEM;
+
+	return 0;
+}
+
+/*
+ * xattr_parse_uid_make_kuid - recursively parse string in the format
+ *                             @uid=<uid>@uid=<uid>@... alongside the
+ *                             usernamespaces and check mappings
+ *
+ * @uidstr   : string like @uid=<uid>@uid=<uid>@...
+ * @userns   : the user namespace to walk alongside
+ * @N_uidstr : returned pointer holding the resulting @uid=<uid>@... with all
+ *             remappings done
+ *
+ * This function returns an error code or 0 in case of success. In case
+ * of success, 'n_uidstr' will hold a valid string.
+ */
+static int
+xattr_parse_uid_make_kuid(const char *uidstr, struct user_namespace *userns,
+			  char **n_uidstr)
+{
+	char *ptr, *ntail;
+	int n, error;
+	uid_t p_uid;
+	char d;
+	kuid_t tuid = KUIDT_INIT(-1);
+
+	*n_uidstr = NULL;
+
+	if (userns == NULL)
+		return -EINVAL;
+
+	n = sscanf(uidstr, "@uid=%u%c", &p_uid, &d);
+	if (n == 0)
+		return -EINVAL;
+	if (n == 2 && d != '@')
+		return -EINVAL;
+
+	tuid = make_kuid(userns, p_uid);
+	if (!uid_valid(tuid))
+		return -ENOENT;
+
+	if (n == 1) {
+		*n_uidstr = xattr_write_uid(__kuid_val(tuid), NULL, NULL, true);
+		if (!*n_uidstr)
+			return -ENOMEM;
+		return 0;
+	}
+
+	/* n == 2 */
+	ptr = strchr(&uidstr[1], '@');
+	error = xattr_parse_uid_make_kuid(ptr, userns->parent, &ntail);
+	if (error)
+		return error;
+
+	*n_uidstr = xattr_write_uid(__kuid_val(tuid), NULL, ntail, false);
+	kfree(ntail);
+	if (!*n_uidstr)
+		return -ENOMEM;
+
+	return 0;
+}
+
+/*
  * xattr_rewrite_userns_xattr - Rewrite and filter an extended attribute
  *                              considering user namespace uid mappings
  *
@@ -203,12 +365,9 @@ xattr_is_userns_supported(const char *name, int prefix, int *is_prefix)
 static char *
 xattr_rewrite_userns_xattr(char *name)
 {
-	int idx, n, is_prefix;
+	int idx, is_prefix, error;
 	size_t len = 0, buflen;
-	char *buffer, *ptr;
-	uid_t p_uid, muid;
-	char d;
-	kuid_t tuid;
+	char *buffer, *ptr, *n_uidstr;
 
 	/* prefix-match name against supported attributes */
 	idx = xattr_is_userns_supported(name, true, &is_prefix);
@@ -228,30 +387,29 @@ xattr_rewrite_userns_xattr(char *name)
 			return NULL;
 	}
 
-	n = sscanf(&name[len], "@uid=%u%c", &p_uid, &d);
-	if (n != 1)
+	/*
+	 * We must have a name[len] == '@'.
+	 * The <uid> in @uid=<uid> has to match a mapped uid.
+	 */
+	error = xattr_parse_uid_from_kuid(&name[len], current_user_ns(),
+					  &n_uidstr);
+	if (error)
 		return NULL;
 
-	/* do we have a mapping of the uid? */
-	tuid = KUIDT_INIT(p_uid);
-	muid = from_kuid(current_user_ns(), tuid);
-	if (muid == -1)
-		return NULL;
-
-	buflen = len + sizeof("@uid=") - 1 +
-		 sizeof("4294967295") - 1 + 1;
+	buflen = len + strlen(n_uidstr) + 1;
 	buffer = kmalloc(buflen, GFP_KERNEL);
-	if (!buffer)
+	if (!buffer) {
+		kfree(n_uidstr);
 		return ERR_PTR(-ENOMEM);
+	}
 
 	name[len] = 0;
 
-	if (muid)
-		snprintf(buffer, buflen, "%s@uid=%u", name, muid);
-	else
-		strncpy(buffer, name, buflen);
+	snprintf(buffer, buflen, "%s%s", name, n_uidstr);
 
 	name[len] = '@';
+
+	//printk(KERN_INFO "%s: %s -> %s\n",__func__, name, buffer);
 
 	return buffer;
 }
@@ -345,23 +503,13 @@ char *
 xattr_userns_name(const char *fullname, const char *suffix)
 {
 	size_t buflen;
-	char *buffer, *ptr;
+	char *buffer, *ptr, *n_uidstr;
 	kuid_t root_uid = make_kuid(current_user_ns(), 0);
-	kuid_t tuid;
-	uid_t p_uid;
-	int n, idx, is_prefix;
-	char d;
+	int idx, is_prefix, error;
 	size_t len = 0, slen;
 
 	if (!suffix)
 		return ERR_PTR(-EINVAL);
-
-	buflen = strlen(suffix) + sizeof("@uid=") - 1 +
-		 sizeof("4294967295") - 1 + 1;
-	buffer = kmalloc(buflen, GFP_KERNEL);
-
-	if (!buffer)
-		return ERR_PTR(-ENOMEM);
 
 	/* only security.foo will be changed here - prefix match here */
 	idx = xattr_is_userns_supported(fullname, true, &is_prefix);
@@ -391,47 +539,58 @@ xattr_userns_name(const char *fullname, const char *suffix)
 		if (!uid_valid(root_uid))
 			return ERR_PTR(-EINVAL);
 
-		/* append @uid=<uid> to suffix foo -> foo@uid=<uid> */
-		snprintf(buffer, buflen, "%s@uid=%u", suffix,
-			 __kuid_val(root_uid));
-		return buffer;
-	}
-
-	if (fullname[len] == '@') {
-		/*
-		 * We have a '@' in the name.
-		 * The <uid> in @uid=<uid> has to match a mapped uid.
-		 */
-		n = sscanf(&fullname[len], "@uid=%u%c", &p_uid, &d);
-		if (n != 1)
-			goto err_eperm;
-
-		tuid = make_kuid(current_user_ns(), p_uid);
-		if (!uid_valid(tuid)) {
-			/* cannot read or write without valid mapping */
-			goto err_eperm;
-		}
-
-		/* suffix of fullname must have '@' */
-		ptr = strchr(suffix, '@');
-		if (!ptr)
-			goto err_eperm;
-		slen = ptr - suffix;
-
-		snprintf(buffer, slen + 1, "%s", suffix);
-		snprintf(&buffer[slen], buflen - slen, "@uid=%u",
-			 __kuid_val(tuid));
+		buffer = xattr_write_uid(__kuid_val(root_uid), suffix, NULL,
+					 true);
+		if (!buffer)
+			return ERR_PTR(-ENOMEM);
 
 		return buffer;
 	}
-	goto err_eperm;
+
+	/*
+	 * We must have fullname[len] == '@'.
+	 * The <uid> in @uid=<uid> has to match a mapped uid.
+	 */
+	error = xattr_parse_uid_make_kuid(&fullname[len],
+					  current_user_ns(),
+					  &n_uidstr);
+	if (error) {
+		kfree(n_uidstr);
+		return ERR_PTR(error);
+	}
+
+	/* suffix of fullname must have '@' */
+	ptr = strchr(suffix, '@');
+	if (!ptr) {
+		kfree(n_uidstr);
+		goto err_eperm;
+	}
+	slen = ptr - suffix;
+
+	/* suffix[slen] = '@' */
+	buflen = strlen(suffix) + strlen(n_uidstr) + 1;
+	buffer = kmalloc(buflen, GFP_KERNEL);
+	if (!buffer) {
+		kfree(n_uidstr);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	snprintf(buffer, slen + 1, "%s", suffix);
+	snprintf(&buffer[slen], buflen - slen, "%s", n_uidstr);
+	kfree(n_uidstr);
+
+	//printk(KERN_INFO "%s: %s (%s) -> %s\n",__func__, suffix, fullname, buffer);
+
+	return buffer;
 
 out_copy:
-	strncpy(buffer, suffix, buflen);
+	buffer = kmalloc(strlen(suffix) + 1, GFP_KERNEL);
+	if (!buffer)
+		return ERR_PTR(-ENOMEM);
+	strcpy(buffer, suffix);
 	return buffer;
 
 err_eperm:
-	kfree(buffer);
 	return ERR_PTR(-EPERM);
 }
 

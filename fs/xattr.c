@@ -138,6 +138,7 @@ xattr_permission(struct inode *inode, const char *name, int mask)
  */
 static const char *const userns_xattrs[] = {
 	XATTR_NAME_CAPS,
+	XATTR_NAME_SELINUX,
 	NULL
 };
 

@@ -304,8 +304,10 @@ xattr_rewrite_userns_xattr(char *name)
 
 	/* prefix-match name against supported attributes */
 	idx = xattr_is_userns_supported(name, true);
-	if (idx < 0)
-		return NULL;
+	if (idx < 0) {
+		/* only rewrite those in userns_xattr[*] */
+		return name;
+	}
 
 	/* exact match ? */
 	len = strlen(userns_xattrs[idx]);

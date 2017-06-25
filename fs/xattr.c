@@ -546,10 +546,9 @@ xattr_userns_name(const char *fullname, const char *suffix,
 	return buffer;
 
 out_copy:
-	buffer = kmalloc(strlen(suffix) + 1, GFP_KERNEL);
+	buffer = kstrdup(suffix, GFP_KERNEL);
 	if (!buffer)
 		return ERR_PTR(-ENOMEM);
-	strcpy(buffer, suffix);
 
 	return buffer;
 

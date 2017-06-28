@@ -490,7 +490,7 @@ xattr_userns_name(const char *fullname, const char *suffix,
 
 	/* only security.foo will be changed here - prefix match here */
 	idx = xattr_is_userns_supported(fullname, true);
-	if (idx == -1)
+	if (idx < 0)
 		goto out_copy;
 
 	/* read security.foo? --> read security.foo@uid=<uid> instead */

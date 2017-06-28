@@ -471,31 +471,26 @@ out_free:
  * This function returns a buffer with either the original name or the
  * user namespace adjusted name of the extended attribute.
  *
- * @fullname: the full name of the extended attribute, e.g. security.foo
- * @suffix:   the suffix of the extended attribute, e.g. foo
+ * @full:     the full name of the extended attribute, e.g. security.foo
  * @is_write: whether this is for writing an xattr
  */
 char *
-xattr_userns_name(const char *fullname, const char *suffix,
-		  struct user_namespace *userns)
+xattr_userns_name(const char *name, struct user_namespace *userns)
 {
 	size_t buflen;
-	char *buffer, *ptr, *n_uidstr;
+	char *buffer, *n_uidstr;
 	kuid_t root_uid = make_kuid(userns, 0);
 	int idx, error;
-	size_t len = 0, slen;
-
-	if (!suffix)
-		return ERR_PTR(-EINVAL);
+	size_t len;
 
 	/* only security.foo will be changed here - prefix match here */
-	idx = xattr_is_userns_supported(fullname, true);
+	idx = xattr_is_userns_supported(name, true);
 	if (idx < 0)
 		goto out_copy;
 
 	/* read security.foo? --> read security.foo@uid=<uid> instead */
 	len = strlen(userns_xattrs[idx]);
-	if (fullname[len] == 0) {
+	if (name[len] == 0) {
 		/*
 		 * init_user_ns or userns with root mapped to uid 0
 		 * may read security.foo directly
@@ -507,7 +502,7 @@ xattr_userns_name(const char *fullname, const char *suffix,
 		if (!uid_valid(root_uid))
 			return ERR_PTR(-EINVAL);
 
-		buffer = xattr_write_uid(__kuid_val(root_uid), suffix);
+		buffer = xattr_write_uid(__kuid_val(root_uid), name);
 		if (!buffer)
 			return ERR_PTR(-ENOMEM);
 
@@ -515,45 +510,34 @@ xattr_userns_name(const char *fullname, const char *suffix,
 	}
 
 	/*
-	 * We must have fullname[len] == '@'.
+	 * We must have name[len] == '@'.
 	 */
-	error = xattr_parse_uid_make_kuid(&fullname[len],
+	error = xattr_parse_uid_make_kuid(&name[len],
 					  userns,
 					  &n_uidstr);
 	if (error)
 		return ERR_PTR(error);
 
-	/* suffix of fullname must have '@' */
-	ptr = strchr(suffix, '@');
-	if (!ptr) {
-		kfree(n_uidstr);
-		goto err_eperm;
-	}
-	slen = ptr - suffix;
-
-	/* suffix[slen] = '@' */
-	buflen = strlen(suffix) + strlen(n_uidstr) + 1;
+	/* name[len] == '@' */
+	buflen = len + strlen(n_uidstr) + 1;
 	buffer = kmalloc(buflen, GFP_KERNEL);
 	if (!buffer) {
 		kfree(n_uidstr);
 		return ERR_PTR(-ENOMEM);
 	}
 
-	snprintf(buffer, slen + 1, "%s", suffix);
-	snprintf(&buffer[slen], buflen - slen, "%s", n_uidstr);
+	snprintf(buffer, len + 1, "%s", name);
+	snprintf(&buffer[len], buflen - len, "%s", n_uidstr);
 	kfree(n_uidstr);
 
 	return buffer;
 
 out_copy:
-	buffer = kstrdup(suffix, GFP_KERNEL);
+	buffer = kstrdup(name, GFP_KERNEL);
 	if (!buffer)
 		return ERR_PTR(-ENOMEM);
 
 	return buffer;
-
-err_eperm:
-	return ERR_PTR(-EPERM);
 }
 
 int
@@ -561,22 +545,26 @@ __vfs_setxattr(struct dentry *dentry, struct inode *inode, const char *name,
 	       const void *value, size_t size, int flags)
 {
 	const struct xattr_handler *handler;
-	char *nsuffix;
-	const char *fullname = name;
+	char *newname;
 	int ret;
 
+	newname = xattr_userns_name(name, current_user_ns());
+	if (IS_ERR(newname))
+		return PTR_ERR(newname);
+	name = newname;
 	handler = xattr_resolve_name(inode, &name);
-	if (IS_ERR(handler))
+	if (IS_ERR(handler)) {
+		kfree(newname);
 		return PTR_ERR(handler);
-	if (!handler->set)
+	}
+	if (!handler->set) {
+		kfree(newname);
 		return -EOPNOTSUPP;
+	}
 	if (size == 0)
 		value = "";  /* empty EA, do not remove */
-	nsuffix = xattr_userns_name(fullname, name, current_user_ns());
-	if (IS_ERR(nsuffix))
-		return PTR_ERR(nsuffix);
-	ret = handler->set(handler, dentry, inode, nsuffix, value, size, flags);
-	kfree(nsuffix);
+	ret = handler->set(handler, dentry, inode, name, value, size, flags);
+	kfree(newname);
 	return ret;
 }
 EXPORT_SYMBOL(__vfs_setxattr);
@@ -733,24 +721,29 @@ __vfs_getxattr(struct dentry *dentry, struct inode *inode, const char *name,
 	       void *value, size_t size)
 {
 	const struct xattr_handler *handler;
-	char *nsuffix;
-	const char *fullname = name;
+	char *newname;
 	int ret, userns_supt_xattr;
 	struct user_namespace *userns = current_user_ns();
 
-	handler = xattr_resolve_name(inode, &name);
-	if (IS_ERR(handler))
-		return PTR_ERR(handler);
-	if (!handler->get)
-		return -EOPNOTSUPP;
-	userns_supt_xattr = (xattr_is_userns_supported(fullname, false) >= 0);
+	userns_supt_xattr = (xattr_is_userns_supported(name, false) >= 0);
+
 	do {
-		nsuffix = xattr_userns_name(fullname, name, userns);
-		if (IS_ERR(nsuffix))
-			return PTR_ERR(nsuffix);
-		ret = handler->get(handler, dentry, inode, nsuffix, value,
+		newname = xattr_userns_name(name, userns);
+		if (IS_ERR(newname))
+			return PTR_ERR(newname);
+		name = newname;
+		handler = xattr_resolve_name(inode, &name);
+		if (IS_ERR(handler)) {
+			return PTR_ERR(handler);
+			kfree(newname);
+		}
+		if (!handler->get) {
+			kfree(newname);
+			return -EOPNOTSUPP;
+		}
+		ret = handler->get(handler, dentry, inode, name, value,
 				   size);
-		kfree(nsuffix);
+		kfree(newname);
 		userns = userns->parent;
 	} while ((ret == -ENODATA) && userns && userns_supt_xattr);
 	return ret;
@@ -774,14 +767,15 @@ vfs_getxattr(struct dentry *dentry, const char *name, void *value, size_t size)
 	if (!strncmp(name, XATTR_SECURITY_PREFIX,
 				XATTR_SECURITY_PREFIX_LEN)) {
 		int ret;
-		const char *suffix = name + XATTR_SECURITY_PREFIX_LEN;
-		char *nsuffix = xattr_userns_name(name, suffix,
-						  current_user_ns());
+		const char *suffix;
+		char *newname = xattr_userns_name(name, current_user_ns());
+		if (IS_ERR(newname))
+			return PTR_ERR(newname);
 
-		if (IS_ERR(nsuffix))
-			return PTR_ERR(nsuffix);
-		ret = xattr_getsecurity(inode, nsuffix, value, size);
-		kfree(nsuffix);
+		suffix = newname + XATTR_SECURITY_PREFIX_LEN;
+
+		ret = xattr_getsecurity(inode, suffix, value, size);
+		kfree(newname);
 		/*
 		 * Only overwrite the return value if a security module
 		 * is actually active.
@@ -824,21 +818,24 @@ __vfs_removexattr(struct dentry *dentry, const char *name)
 {
 	struct inode *inode = d_inode(dentry);
 	const struct xattr_handler *handler;
-	char *nsuffix;
-	const char *fullname = name;
+	char *newname;
 	int ret;
 
+	newname = xattr_userns_name(name, current_user_ns());
+	if (IS_ERR(newname))
+		return PTR_ERR(newname);
+	name = newname;
 	handler = xattr_resolve_name(inode, &name);
-	if (IS_ERR(handler))
+	if (IS_ERR(handler)) {
+		kfree(newname);
 		return PTR_ERR(handler);
-	if (!handler->set)
+	}
+	if (!handler->set) {
+		kfree(newname);
 		return -EOPNOTSUPP;
-	nsuffix = xattr_userns_name(fullname, name, current_user_ns());
-	if (IS_ERR(nsuffix))
-		return PTR_ERR(nsuffix);
-	ret = handler->set(handler, dentry, inode, nsuffix, NULL, 0,
-			   XATTR_REPLACE);
-	kfree(nsuffix);
+	}
+	ret = handler->set(handler, dentry, inode, name, NULL, 0, XATTR_REPLACE);
+	kfree(newname);
 	return ret;
 }
 EXPORT_SYMBOL(__vfs_removexattr);

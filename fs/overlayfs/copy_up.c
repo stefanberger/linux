@@ -66,7 +66,7 @@ int ovl_copy_xattr(struct dentry *old, struct dentry *new)
 	    !(new->d_inode->i_opflags & IOP_XATTR))
 		return 0;
 
-	list_size = vfs_listxattr(old, NULL, 0);
+	list_size = vfs_listxattr(old, NULL, 0, true);
 	if (list_size <= 0) {
 		if (list_size == -EOPNOTSUPP)
 			return 0;
@@ -77,7 +77,7 @@ int ovl_copy_xattr(struct dentry *old, struct dentry *new)
 	if (!buf)
 		return -ENOMEM;
 
-	list_size = vfs_listxattr(old, buf, list_size);
+	list_size = vfs_listxattr(old, buf, list_size, true);
 	if (list_size <= 0) {
 		error = list_size;
 		goto out;

@@ -259,7 +259,7 @@ ssize_t ovl_listxattr(struct dentry *dentry, char *list, size_t size)
 	const struct cred *old_cred;
 
 	old_cred = ovl_override_creds(dentry->d_sb);
-	res = vfs_listxattr(realdentry, list, size);
+	res = vfs_listxattr(realdentry, list, size, true);
 	revert_creds(old_cred);
 	if (res <= 0 || size == 0)
 		return res;

@@ -737,6 +737,7 @@ __vfs_getxattr(struct dentry *dentry, struct inode *inode, const char *name,
 {
 	const struct xattr_handler *handler = NULL;
 	char *newname =  NULL;
+	const char *nname;
 	int ret, userns_supt_xattr;
 	struct user_namespace *userns = current_user_ns();
 
@@ -749,19 +750,17 @@ __vfs_getxattr(struct dentry *dentry, struct inode *inode, const char *name,
 		if (IS_ERR(newname))
 			return PTR_ERR(newname);
 
-		if (!handler) {
-			name = newname;
-			handler = xattr_resolve_name(inode, &name);
-			if (IS_ERR(handler)) {
-				ret = PTR_ERR(handler);
-				goto out;
-			}
-			if (!handler->get) {
-				ret = -EOPNOTSUPP;
-				goto out;
-			}
+		nname = newname;
+		handler = xattr_resolve_name(inode, &nname);
+		if (IS_ERR(handler)) {
+			ret = PTR_ERR(handler);
+			goto out;
 		}
-		ret = handler->get(handler, dentry, inode, name, value, size);
+		if (!handler->get) {
+			ret = -EOPNOTSUPP;
+			goto out;
+		}
+		ret = handler->get(handler, dentry, inode, nname, value, size);
 		userns = userns->parent;
 	} while ((ret == -ENODATA) && userns && userns_supt_xattr);
 
@@ -811,7 +810,7 @@ nolsm:
 EXPORT_SYMBOL_GPL(vfs_getxattr);
 
 ssize_t
-vfs_listxattr(struct dentry *dentry, char *list, size_t size)
+vfs_listxattr(struct dentry *dentry, char *list, size_t size, bool rewrite)
 {
 	struct inode *inode = d_inode(dentry);
 	ssize_t error;
@@ -827,7 +826,7 @@ vfs_listxattr(struct dentry *dentry, char *list, size_t size)
 		if (size && error > size)
 			error = -ERANGE;
 	}
-	if (error > 0)
+	if (error > 0 && rewrite)
 		error = xattr_list_userns_rewrite(list, error, size);
 
 	return error;
@@ -1095,7 +1094,7 @@ listxattr(struct dentry *d, char __user *list, size_t size)
 			return -ENOMEM;
 	}
 
-	error = vfs_listxattr(d, klist, size);
+	error = vfs_listxattr(d, klist, size, true);
 	if (error > 0) {
 		if (size && copy_to_user(list, klist, error))
 			error = -EFAULT;

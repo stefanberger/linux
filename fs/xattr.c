@@ -553,6 +553,109 @@ out_copy:
 	return buffer;
 }
 
+static ssize_t
+xattr_get_list(struct dentry *dentry, char **buffer)
+{
+	ssize_t buflen;
+
+	buflen = vfs_listxattr(dentry, NULL, 0, false);
+	if (buflen <= 0)
+		return buflen;
+
+	*buffer = kmalloc(buflen, GFP_KERNEL);
+	if (!*buffer)
+		return -ENOMEM;
+
+	buflen = vfs_listxattr(dentry, *buffer, buflen, false);
+	if (buflen <= 0) {
+		kfree(*buffer);
+		return buflen;
+	}
+
+	return buflen;
+}
+
+typedef int walk_xattr_cb(const char *name, void *opaque);
+
+static int
+walk_xattrs_prefix(struct dentry *dentry,
+		   const char *prefix, size_t prefixlen,
+		   walk_xattr_cb *cb, void *opaque)
+{
+	ssize_t buflen;
+	char *buffer = NULL, *ptr;
+	int ret = 0;
+
+	buflen = xattr_get_list(dentry, &buffer);
+	if (buflen <= 0)
+		return buflen;
+
+	ptr = buffer;
+
+	while (ptr < buffer + buflen) {
+		if (!strncmp(ptr, prefix, prefixlen) &&
+		    (ptr[prefixlen] == 0 || ptr[prefixlen] == '@')) {
+			ret = cb(ptr, opaque);
+			if (ret)
+				break;
+		}
+
+		ptr += strlen(ptr) + 1;
+	}
+
+	kfree(buffer);
+
+	return ret;
+}
+
+static int
+walk_xattr_cb_ret1(const char *name, void *opaque)
+{
+	return 1;
+}
+
+int
+__vfs_hasxattr_prefix(struct dentry *dentry, const char *prefix,
+                      size_t prefixlen)
+{
+	return walk_xattrs_prefix(dentry, prefix, prefixlen,
+				  walk_xattr_cb_ret1, NULL);
+}
+
+/*
+ * xattr_limit_entries - check for limits on xattr names
+ *
+ * Enforce that only security.foo and one security.foo@uid=<> is there.
+ *
+ * @dentry: dentry of the file
+ * @name: the name of the xattr to write into the filesystem, e.g.,
+ *        security.capability or security.capability@uid=1000
+ *
+ * Returns negative error code in case of error or if the xattr must not
+ * be added. 0 in case the xattr can be added.
+ */
+static int
+xattr_limit_entries(struct dentry *dentry, const char *name)
+{
+	char *atchar;
+	int idx, prefixlen = 0;
+
+	idx = xattr_is_userns_supported(name, true);
+	if (idx < 0)
+		return 0;
+
+	atchar = strchr(name, '@');
+	if (atchar)
+		prefixlen = atchar - name;
+	else
+		prefixlen = strlen(name);
+
+	if (!__vfs_hasxattr_prefix(dentry, name, prefixlen))
+		return 0;
+
+	return -EDQUOT;
+}
+
 int
 __vfs_setxattr(struct dentry *dentry, struct inode *inode, const char *name,
 	       const void *value, size_t size, int flags)
@@ -574,6 +677,11 @@ __vfs_setxattr(struct dentry *dentry, struct inode *inode, const char *name,
 		ret = -EOPNOTSUPP;
 		goto out;
 	}
+
+	ret = xattr_limit_entries(dentry, newname);
+	if (ret < 0)
+		goto out;
+
 	if (size == 0)
 		value = "";  /* empty EA, do not remove */
 	ret = handler->set(handler, dentry, inode, name, value, size, flags);
@@ -833,35 +941,66 @@ vfs_listxattr(struct dentry *dentry, char *list, size_t size, bool rewrite)
 }
 EXPORT_SYMBOL_GPL(vfs_listxattr);
 
-int
-__vfs_removexattr(struct dentry *dentry, const char *name)
+static int
+__vfs_removexattr_plain(struct dentry *dentry, const char *name)
 {
 	struct inode *inode = d_inode(dentry);
 	const struct xattr_handler *handler;
+
+	handler = xattr_resolve_name(inode, &name);
+	if (IS_ERR(handler))
+		return PTR_ERR(handler);
+	if (!handler->set)
+		return -EOPNOTSUPP;
+	return handler->set(handler, dentry, inode, name, NULL, 0, XATTR_REPLACE);
+}
+
+int
+__vfs_removexattr(struct dentry *dentry, const char *name)
+{
 	char *newname;
 	int ret;
 
 	newname = xattr_userns_name(name, current_user_ns());
 	if (IS_ERR(newname))
 		return PTR_ERR(newname);
-	name = newname;
-	handler = xattr_resolve_name(inode, &name);
-	if (IS_ERR(handler)) {
-		ret = PTR_ERR(handler);
-		goto out;
-	}
-	if (!handler->set) {
-		ret = -EOPNOTSUPP;
-		goto out;
-	}
-	ret = handler->set(handler, dentry, inode, name, NULL, 0, XATTR_REPLACE);
 
-out:
+	ret = __vfs_removexattr_plain(dentry, newname);
+
 	kfree(newname);
 
 	return ret;
 }
 EXPORT_SYMBOL(__vfs_removexattr);
+
+struct removexattr {
+	struct dentry *dentry;
+	int ret;
+};
+static int
+walk_xattr_cb_removexattr_plain(const char *name, void *opaque)
+{
+	struct removexattr *r = opaque;
+
+	r->ret = __vfs_removexattr_plain(r->dentry, name);
+
+	return 1;
+}
+
+int
+__vfs_removexattr_prefix(struct dentry *dentry, const char *prefix)
+{
+	struct removexattr r = {
+		.dentry = dentry,
+		.ret = 0,
+	};
+
+	walk_xattrs_prefix(dentry, prefix, strlen(prefix),
+			   walk_xattr_cb_removexattr_plain, &r);
+
+	return r.ret;
+}
+EXPORT_SYMBOL(__vfs_removexattr_prefix);
 
 int
 vfs_removexattr(struct dentry *dentry, const char *name)

@@ -307,11 +307,8 @@ static inline void bprm_clear_caps(struct linux_binprm *bprm)
  */
 int cap_inode_need_killpriv(struct dentry *dentry)
 {
-	struct inode *inode = d_backing_inode(dentry);
-	int error;
-
-	error = __vfs_getxattr(dentry, inode, XATTR_NAME_CAPS, NULL, 0);
-	return error > 0;
+	return __vfs_hasxattr_prefix(dentry, XATTR_NAME_CAPS,
+				     sizeof(XATTR_NAME_CAPS) - 1);
 }
 
 /**
@@ -326,7 +323,7 @@ int cap_inode_killpriv(struct dentry *dentry)
 {
 	int error;
 
-	error = __vfs_removexattr(dentry, XATTR_NAME_CAPS);
+	error = __vfs_removexattr_prefix(dentry, XATTR_NAME_CAPS);
 	if (error == -EOPNOTSUPP)
 		error = 0;
 	return error;

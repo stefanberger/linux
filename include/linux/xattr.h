@@ -53,6 +53,8 @@ int __vfs_setxattr(struct dentry *, struct inode *, const char *, const void *, 
 int __vfs_setxattr_noperm(struct dentry *, const char *, const void *, size_t, int);
 int vfs_setxattr(struct dentry *, const char *, const void *, size_t, int);
 int __vfs_removexattr(struct dentry *, const char *);
+int __vfs_removexattr_prefix(struct dentry *, const char *);
+int __vfs_hasxattr_prefix(struct dentry *, const char *, size_t);
 int vfs_removexattr(struct dentry *, const char *);
 
 ssize_t generic_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size);

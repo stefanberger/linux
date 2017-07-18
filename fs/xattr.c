@@ -364,7 +364,7 @@ xattr_list_contains(const char *list, size_t listlen, const char *needle)
 /*
  * xattr_list_userns_rewrite - Rewrite list of xattr names for user namespaces
  *                             or determine needed size for attribute list
- *                             in case size == 0
+ *                             in case getsize == true
  *
  * In a user namespace we do not present all extended attributes to the
  * user. We filter out those that are in the list of userns supported xattr.
@@ -372,15 +372,17 @@ xattr_list_contains(const char *list, size_t listlen, const char *needle)
  * for that uid in the current user namespace.
  *
  * @list:        list of 0-byte separated xattr names
- * @size:        the size of the list; may be 0 to determine needed list size
+ * @size:        the size of the list
  * @list_maxlen: allocated buffer size of list
+ * @getsize:     only get size of needed list
  *
  * This function returns the number of bytes in the list of xattr strings.
  * In case of error this function returns -ENOMEM or -ERNAGE for a buffer
  * that is too small to hold the result.
  */
 static ssize_t
-xattr_list_userns_rewrite(char *list, ssize_t size, size_t list_maxlen)
+xattr_list_userns_rewrite(char *list, ssize_t size, size_t list_maxlen,
+			  bool getsize)
 {
 	char *nlist = NULL;
 	size_t s_off, len, nlen;
@@ -390,14 +392,14 @@ xattr_list_userns_rewrite(char *list, ssize_t size, size_t list_maxlen)
 	if (current_user_ns() == &init_user_ns)
 		return size;
 
-	if (size) {
+	if (!getsize) {
 		nlist = kmalloc(list_maxlen, GFP_KERNEL);
 		if (!nlist)
 			return -ENOMEM;
 	}
 
 	s_off = d_off = 0;
-	while (s_off < size || size == 0) {
+	while (s_off < size) {
 		name = &list[s_off];
 
 		len = strlen(name);
@@ -942,8 +944,8 @@ nolsm:
 }
 EXPORT_SYMBOL_GPL(vfs_getxattr);
 
-ssize_t
-vfs_listxattr(struct dentry *dentry, char *list, size_t size, bool rewrite)
+static ssize_t
+_vfs_listxattr(struct dentry *dentry, char *list, size_t size)
 {
 	struct inode *inode = d_inode(dentry);
 	ssize_t error;
@@ -959,8 +961,36 @@ vfs_listxattr(struct dentry *dentry, char *list, size_t size, bool rewrite)
 		if (size && error > size)
 			error = -ERANGE;
 	}
+
+	return error;
+}
+
+ssize_t
+vfs_listxattr(struct dentry *dentry, char *list, size_t size, bool rewrite)
+{
+	ssize_t error;
+	char *tmplist = NULL;
+	bool getsize = (size == 0);
+
+	if (size || !rewrite || current_user_ns() == &init_user_ns) {
+		error = _vfs_listxattr(dentry, list, size);
+	} else {
+		error = _vfs_listxattr(dentry, NULL, 0);
+		if (error <= 0)
+			return error;
+		size = error;
+
+		tmplist = kmalloc(size, GFP_KERNEL);
+		if (!tmplist)
+			return -ENOMEM;
+		list = tmplist;
+
+		error = _vfs_listxattr(dentry, list, size);
+	}
 	if (error > 0 && rewrite)
-		error = xattr_list_userns_rewrite(list, error, size);
+		error = xattr_list_userns_rewrite(list, error, size, getsize);
+
+	kfree(tmplist);
 
 	return error;
 }

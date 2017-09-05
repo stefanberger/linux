@@ -415,6 +415,11 @@ xattr_list_userns_rewrite(char *list, ssize_t size, size_t list_maxlen,
 				d_off = PTR_ERR(newname);
 				goto out_free;
 			}
+			/* for 'getsize' calc. worst-case size */
+			if (getsize && strlen(name) > strlen(newname)) {
+				kfree(newname);
+				newname = name;
+			}
 		}
 		if (newname) {
 			if (getsize ||
@@ -972,6 +977,9 @@ vfs_listxattr(struct dentry *dentry, char *list, size_t size, bool rewrite)
 	ssize_t error;
 	char *tmplist = NULL;
 	bool getsize = (size == 0);
+
+	if (!size)
+		rewrite = false;
 
 	if (size || !rewrite || current_user_ns() == &init_user_ns) {
 		error = _vfs_listxattr(dentry, list, size);

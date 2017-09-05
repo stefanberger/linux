@@ -417,7 +417,8 @@ xattr_list_userns_rewrite(char *list, ssize_t size, size_t list_maxlen,
 			}
 		}
 		if (newname) {
-			if (!xattr_list_contains(nlist, d_off, newname)) {
+			if (getsize ||
+			    !xattr_list_contains(nlist, d_off, newname)) {
 				nlen = strlen(newname);
 
 				if (nlist) {

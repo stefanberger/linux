@@ -90,6 +90,22 @@ int software_key_determine_akcipher(const char *encoding,
 		return 0;
 	}
 
+	if (strcmp(encoding, "x962") == 0) {
+		enum OID oid;
+
+		if (pkey->paramlen < 2)
+			return -EINVAL;
+
+		oid = look_up_OID(pkey->params + 2, pkey->paramlen - 2);
+		switch (oid) {
+		case OID_id_prime256v1:
+			strcpy(alg_name, "nist_p256");
+			return 0;
+		default:
+			return -EINVAL;
+		}
+	}
+
 	return -ENOPKG;
 }
 

@@ -28,6 +28,8 @@ static struct ecc_curve nist_p192 = {
 	.b = nist_p192_b
 };
 
+#define NIST_P192_KEY_SIZE 24
+
 /* NIST P-256: a = p - 3 */
 static u64 nist_p256_g_x[] = { 0xF4A13945D898C296ull, 0x77037D812DEB33A0ull,
 				0xF8BCE6E563A440F2ull, 0x6B17D1F2E12C4247ull };
@@ -53,5 +55,7 @@ static struct ecc_curve nist_p256 = {
 	.a = nist_p256_a,
 	.b = nist_p256_b
 };
+
+#define NIST_P256_KEY_SIZE 32
 
 #endif

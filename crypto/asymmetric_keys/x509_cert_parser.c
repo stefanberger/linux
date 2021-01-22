@@ -505,6 +505,7 @@ int x509_extract_key_data(void *context, size_t hdrlen,
 		case OID_sm2:
 			ctx->cert->pub->pkey_algo = "sm2";
 			break;
+		case OID_id_prime192v1:
 		case OID_id_prime256v1:
 			ctx->cert->pub->pkey_algo = "ecdsa";
 			break;

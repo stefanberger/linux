@@ -98,6 +98,9 @@ int software_key_determine_akcipher(const char *encoding,
 
 		oid = look_up_OID(pkey->params + 2, pkey->paramlen - 2);
 		switch (oid) {
+		case OID_id_prime192v1:
+			strcpy(alg_name, "nist_p192");
+			return 0;
 		case OID_id_prime256v1:
 			strcpy(alg_name, "nist_p256");
 			return 0;

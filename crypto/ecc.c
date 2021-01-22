@@ -1813,13 +1813,47 @@ static struct akcipher_alg ecc_nist_p256 = {
 	},
 };
 
+static unsigned int ecc_nist_p192_max_size(struct crypto_akcipher *tfm)
+{
+	return NIST_P192_KEY_SIZE;
+}
+
+static int ecc_nist_p192_init_tfm(struct crypto_akcipher *tfm)
+{
+	struct ecc_ctx *ctx = akcipher_tfm_ctx(tfm);
+
+	return ecc_ec_ctx_init(ctx, ECC_CURVE_NIST_P192);
+}
+
+static struct akcipher_alg ecc_nist_p192 = {
+	.verify = ecdsa_verify,
+	.set_pub_key = ecc_set_pub_key,
+	.max_size = ecc_nist_p192_max_size,
+	.init = ecc_nist_p192_init_tfm,
+	.exit = ecc_exit_tfm,
+	.base = {
+		.cra_name = "nist_p192",
+		.cra_driver_name = "ecc-nist-p192",
+		.cra_priority = 100,
+		.cra_module = THIS_MODULE,
+		.cra_ctxsize = sizeof(struct ecc_ctx),
+	},
+};
+
 static int ecc_init(void)
 {
-	return crypto_register_akcipher(&ecc_nist_p256);
+	int ret;
+
+	ret = crypto_register_akcipher(&ecc_nist_p256);
+	if (ret)
+		return ret;
+
+	return crypto_register_akcipher(&ecc_nist_p192);
 }
 
 static void ecc_exit(void)
 {
+	crypto_unregister_akcipher(&ecc_nist_p192);
 	crypto_unregister_akcipher(&ecc_nist_p256);
 }
 

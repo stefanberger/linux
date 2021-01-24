@@ -11,6 +11,7 @@
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/bug.h>
+#include <linux/asn1.h>
 #include "oid_registry_data.c"
 
 MODULE_DESCRIPTION("OID Registry");
@@ -91,6 +92,18 @@ enum OID look_up_OID(const void *data, size_t datasize)
 	return OID__NR;
 }
 EXPORT_SYMBOL_GPL(look_up_OID);
+
+int parse_OID(const void *data, size_t datasize, enum OID *oid)
+{
+	const unsigned char *v = data;
+
+	if (datasize < 2 || v[0] != ASN1_OID || v[1] != datasize - 2)
+		return -EBADMSG;
+
+	*oid = look_up_OID(data + 2, datasize - 2);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(parse_OID);
 
 /*
  * sprint_OID - Print an Object Identifier into a buffer

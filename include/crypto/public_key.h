@@ -33,6 +33,11 @@ struct public_key {
 
 extern void public_key_free(struct public_key *key);
 
+extern const char *public_key_alg_name_from_params(const void *params,
+                                                   size_t paramlen,
+                                                   const char **sigencoding,
+                                                   const char **sigscheme);
+
 /*
  * Public key cryptography signature data
  */

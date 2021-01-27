@@ -59,6 +59,45 @@ static void public_key_destroy(void *payload0, void *payload3)
 }
 
 /*
+ * Get the alg_name fro the public keys params
+ */
+const char *public_key_alg_name_from_params(const void *params,
+					    size_t paramlen,
+					    const char **sigencoding,
+					    const char **sigscheme)
+{
+	enum OID oid;
+
+	if (paramlen < 2)
+		return ERR_PTR(-EINVAL);
+
+	oid = look_up_OID(params + 2, paramlen - 2);
+	switch (oid) {
+	case OID_id_prime192v1:
+		if (sigencoding)
+			*sigencoding = "x962";
+		if (sigscheme)
+			*sigscheme = "ecdsa";
+		return "nist_p192";
+	case OID_id_prime256v1:
+		if (sigencoding)
+			*sigencoding = "x962";
+		if (sigscheme)
+			*sigscheme = "ecdsa";
+		return "nist_p256";
+	case OID_sm2:
+		if (sigencoding)
+			*sigencoding = "raw";
+		if (sigscheme)
+			*sigscheme = "sm2";
+		return "sm2";
+	default:
+		return ERR_PTR(-EINVAL);
+	}
+}
+EXPORT_SYMBOL(public_key_alg_name_from_params);
+
+/*
  * Determine the crypto algorithm name.
  */
 static
@@ -91,22 +130,16 @@ int software_key_determine_akcipher(const char *encoding,
 	}
 
 	if (strcmp(encoding, "x962") == 0) {
-		enum OID oid;
+		const char *name;
 
-		if (pkey->paramlen < 2)
-			return -EINVAL;
+		name = public_key_alg_name_from_params(pkey->params,
+						       pkey->paramlen,
+						       NULL, NULL);
+		if (IS_ERR(name))
+			return PTR_ERR(name);
+		strcpy(alg_name, name);
 
-		oid = look_up_OID(pkey->params + 2, pkey->paramlen - 2);
-		switch (oid) {
-		case OID_id_prime192v1:
-			strcpy(alg_name, "nist_p192");
-			return 0;
-		case OID_id_prime256v1:
-			strcpy(alg_name, "nist_p256");
-			return 0;
-		default:
-			return -EINVAL;
-		}
+		return 0;
 	}
 
 	return -ENOPKG;

@@ -485,7 +485,8 @@ int x509_extract_key_data(void *context, size_t hdrlen,
 			  const void *value, size_t vlen)
 {
 	struct x509_parse_context *ctx = context;
-	enum OID oid;
+	const char *sigscheme;
+	const char *alg_name;
 
 	ctx->key_algo = ctx->last_oid;
 	switch (ctx->last_oid) {
@@ -497,21 +498,12 @@ int x509_extract_key_data(void *context, size_t hdrlen,
 		ctx->cert->pub->pkey_algo = "ecrdsa";
 		break;
 	case OID_id_ecPublicKey:
-		if (ctx->params_size < 2)
+		alg_name = public_key_alg_name_from_params(ctx->params,
+							   ctx->params_size,
+							   NULL, &sigscheme);
+		if (IS_ERR(alg_name))
 			return -ENOPKG;
-
-		oid = look_up_OID(ctx->params + 2, ctx->params_size - 2);
-		switch (oid) {
-		case OID_sm2:
-			ctx->cert->pub->pkey_algo = "sm2";
-			break;
-		case OID_id_prime192v1:
-		case OID_id_prime256v1:
-			ctx->cert->pub->pkey_algo = "ecdsa";
-			break;
-		default:
-			return -ENOPKG;
-		}
+		ctx->cert->pub->pkey_algo = sigscheme;
 		break;
 	default:
 		return -ENOPKG;

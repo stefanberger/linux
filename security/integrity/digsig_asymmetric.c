@@ -84,6 +84,7 @@ int asymmetric_verify(struct key *keyring, const char *sig,
 {
 	struct public_key_signature pks;
 	struct signature_v2_hdr *hdr = (struct signature_v2_hdr *)sig;
+	const struct public_key *pk;
 	struct key *key;
 	int ret;
 
@@ -118,8 +119,17 @@ int asymmetric_verify(struct key *keyring, const char *sig,
 		pks.encoding = "raw";
 		break;
 	default:
-		pks.pkey_algo = "rsa";
-		pks.encoding = "pkcs1";
+		pk = key->payload.data[asym_crypto];
+		if (!strcmp(pk->pkey_algo, "rsa")) {
+			pks.pkey_algo = "rsa";
+			pks.encoding = "pkcs1";
+		} else {
+			pks.pkey_algo = public_key_alg_name_from_params(
+						pk->params, pk->paramlen,
+						&pks.encoding, NULL);
+			if (IS_ERR(pks.pkey_algo))
+				return PTR_ERR(pks.pkey_algo);
+		}
 		break;
 	}
 	pks.digest = (u8 *)data;

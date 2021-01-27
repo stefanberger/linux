@@ -21,6 +21,8 @@ config INTEGRITY_SIGNATURE
 	default n
 	select KEYS
 	select SIGNATURE
+	select ASYMMETRIC_KEY
+	select ASYMMETRIC_PUBLIC_KEY_SUBTYPE
 	help
 	  This option enables digital signature verification support
 	  using multiple keyrings. It defines separate keyrings for each

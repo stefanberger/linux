@@ -51,6 +51,18 @@ silent_redirect_openssl = 2>/dev/null
 # external private key, because 'make randconfig' might enable such a
 # boolean option and we unfortunately can't make it depend on !RANDCONFIG.
 ifeq ($(CONFIG_MODULE_SIG_KEY),"certs/signing_key.pem")
+
+X509TEXT=$(shell openssl x509 -in certs/signing_key.pem -text)
+
+ifdef CONFIG_MODULE_SIG_KEY_TYPE_ECDSA
+keytype_openssl = -newkey ec -pkeyopt ec_paramgen_curve:prime256v1
+$(if $(findstring $(X509TEXT),ecdsa-with-),,$(shell rm -f $(CONFIG_MODULE_SIG_KEY)))
+endif
+
+ifdef CONFIG_MODULE_SIG_KEY_TYPE_RSA
+$(if $(findstring $(X509TEXT),RSAEncryption),,$(shell rm -f $(CONFIG_MODULE_SIG_KEY)))
+endif
+
 $(obj)/signing_key.pem: $(obj)/x509.genkey
 	@$(kecho) "###"
 	@$(kecho) "### Now generating an X.509 key pair to be used for signing modules."
@@ -63,6 +75,7 @@ $(obj)/signing_key.pem: $(obj)/x509.genkey
 	$(Q)openssl req -new -nodes -utf8 -$(CONFIG_MODULE_SIG_HASH) -days 36500 \
 		-batch -x509 -config $(obj)/x509.genkey \
 		-outform PEM -out $(obj)/signing_key.pem \
+		$(keytype_openssl) \
 		-keyout $(obj)/signing_key.pem \
 		$($(quiet)redirect_openssl)
 	@$(kecho) "###"
@@ -91,6 +104,7 @@ $(obj)/x509.genkey:
 endif # CONFIG_MODULE_SIG_KEY
 
 $(eval $(call config_filename,MODULE_SIG_KEY))
+
 
 # If CONFIG_MODULE_SIG_KEY isn't a PKCS#11 URI, depend on it
 ifeq ($(patsubst pkcs11:%,%,$(firstword $(MODULE_SIG_KEY_FILENAME))),$(firstword $(MODULE_SIG_KEY_FILENAME)))

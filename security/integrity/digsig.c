@@ -111,7 +111,11 @@ static int __init __integrity_init_keyring(const unsigned int id,
 	} else {
 		if (id == INTEGRITY_KEYRING_PLATFORM)
 			set_platform_trusted_keys(keyring[id]);
+		if (id == INTEGRITY_KEYRING_IMA)
+			load_module_cert(keyring[id], KEY_ALLOC_NOT_IN_QUOTA);
 	}
+
+	pr_info("Loading key to ima keyring\n");
 
 	return err;
 }

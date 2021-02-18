@@ -60,11 +60,18 @@ $(obj)/signing_key.pem: $(obj)/x509.genkey
 	@$(kecho) "### needs to be run as root, and uses a hardware random"
 	@$(kecho) "### number generator if one is available."
 	@$(kecho) "###"
-	$(Q)openssl req -new -nodes -utf8 -$(CONFIG_MODULE_SIG_HASH) -days 36500 \
-		-batch -x509 -config $(obj)/x509.genkey \
-		-outform PEM -out $(obj)/signing_key.pem \
-		-keyout $(obj)/signing_key.pem \
+	$(Q)openssl req -new -nodes -utf8 \
+		-batch -config $(obj)/x509.genkey \
+		-outform PEM -out $(obj)/signing_key.csr \
+		-keyout $(obj)/signing_key.key -extensions myexts \
 		$($(quiet)redirect_openssl)
+	$(Q)openssl x509 -req -days 36500 -in $(obj)/signing_key.csr \
+		-outform PEM -out $(obj)/signing_key.crt \
+		-signkey $(obj)/signing_key.key \
+		-$(CONFIG_MODULE_SIG_HASH) -extensions myexts \
+		-extfile $(obj)/x509.genkey \
+		$($(quiet)redirect_openssl)
+	@cat $(obj)/signing_key.key $(obj)/signing_key.crt >> $(obj)/signing_key.pem
 	@$(kecho) "###"
 	@$(kecho) "### Key pair generated."
 	@$(kecho) "###"

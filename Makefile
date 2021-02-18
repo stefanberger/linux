@@ -1473,7 +1473,8 @@ MRPROPER_FILES += include/config include/generated          \
 		  .config .config.old .version \
 		  Module.symvers \
 		  certs/signing_key.pem certs/signing_key.x509 \
-		  certs/x509.genkey \
+		  certs/x509.genkey certs/signing_key.key \
+		  certs/signing_key.crt certs/signing_key.csr \
 		  vmlinux-gdb.py \
 		  *.spec
 

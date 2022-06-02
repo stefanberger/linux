@@ -1658,4 +1658,10 @@ static inline int of_overlay_notifier_unregister(struct notifier_block *nb)
 
 #endif
 
+#if defined(CONFIG_KEXEC_FILE) && defined(CONFIG_OF_FLATTREE)
+void tpm_add_kexec_buffer(struct kimage *image);
+#else
+static inline void tpm_add_kexec_buffer(struct kimage *image) { }
+#endif
+
 #endif /* _LINUX_OF_H */

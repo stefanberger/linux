@@ -56,6 +56,9 @@ static inline int of_dma_configure(struct device *dev,
 {
 	return of_dma_configure_id(dev, np, force_dma, NULL);
 }
+
+int of_tpm_get_sml_parameters(struct device_node *np, u64 *base, u32 *size);
+
 #else /* CONFIG_OF */
 
 static inline int of_driver_match_device(struct device *dev,

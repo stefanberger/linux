@@ -100,6 +100,8 @@ struct of_reconfig_data {
 	struct property		*old_prop;
 };
 
+struct kimage;
+
 /* initialize a node */
 extern struct kobj_type of_node_ktype;
 extern const struct fwnode_operations of_fwnode_ops;
@@ -436,11 +438,11 @@ int of_map_id(struct device_node *np, u32 id,
 
 phys_addr_t of_dma_get_max_cpu_address(struct device_node *np);
 
-struct kimage;
 void *of_kexec_alloc_and_setup_fdt(const struct kimage *image,
 				   unsigned long initrd_load_addr,
 				   unsigned long initrd_len,
 				   const char *cmdline, size_t extra_fdt_size);
+void tpm_add_kexec_buffer(struct kimage *image);
 #else /* CONFIG_OF */
 
 static inline void of_core_init(void)
@@ -840,6 +842,10 @@ static inline int of_map_id(struct device_node *np, u32 id,
 static inline phys_addr_t of_dma_get_max_cpu_address(struct device_node *np)
 {
 	return PHYS_ADDR_MAX;
+}
+
+static inline void tpm_add_kexec_buffer(struct kimage *image)
+{
 }
 
 #define of_match_ptr(_ptr)	NULL

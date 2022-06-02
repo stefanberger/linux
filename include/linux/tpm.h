@@ -460,4 +460,9 @@ static inline struct tpm_chip *tpm_default_chip(void)
 	return NULL;
 }
 #endif
+
+#ifdef CONFIG_OF
+int of_tpm_get_sml_parameters(struct device_node *np, u64 *base, u32 *size);
+#endif
+
 #endif

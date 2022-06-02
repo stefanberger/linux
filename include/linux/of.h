@@ -100,6 +100,8 @@ struct of_reconfig_data {
 	struct property		*old_prop;
 };
 
+struct kimage;
+
 /* initialize a node */
 extern struct kobj_type of_node_ktype;
 extern const struct fwnode_operations of_fwnode_ops;
@@ -436,7 +438,6 @@ int of_map_id(struct device_node *np, u32 id,
 
 phys_addr_t of_dma_get_max_cpu_address(struct device_node *np);
 
-struct kimage;
 void *of_kexec_alloc_and_setup_fdt(const struct kimage *image,
 				   unsigned long initrd_load_addr,
 				   unsigned long initrd_len,
@@ -1605,6 +1606,12 @@ static inline int of_overlay_notifier_unregister(struct notifier_block *nb)
 	return 0;
 }
 
+#endif
+
+#if defined(CONFIG_KEXEC_FILE) && defined(CONFIG_OF_FLATTREE)
+void tpm_add_kexec_buffer(struct kimage *image);
+#else
+static inline void tpm_add_kexec_buffer(struct kimage *image) { }
 #endif
 
 #endif /* _LINUX_OF_H */

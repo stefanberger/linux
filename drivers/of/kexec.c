@@ -293,6 +293,9 @@ static int tpm_get_kexec_buffer(void **phyaddr, size_t *size)
 	if (ret)
 		return ret;
 
+	printk(KERN_INFO "ooo %s @ %u: tmp_addr: 0x%lx __Va(tmp_addr): 0x%lx\n",
+	       __func__, __LINE__, tmp_addr, (unsigned long)__va(tmp_addr));
+
 	*phyaddr = (void *)tmp_addr;
 	*size = tmp_size;
 
@@ -364,6 +367,8 @@ void tpm_add_kexec_buffer(struct kimage *image)
 	if (of_tpm_get_sml_parameters(np, &base, &size) < 0)
 		return;
 
+	printk(KERN_INFO "ooo %s @ %u: base=0x%lx __va(base)=0x%lx\n",
+	       __func__, __LINE__, (unsigned long)base, (unsigned long)__va(base));
 	buffer = vmalloc(size);
 	if (!buffer) {
 		pr_err("Could not allocate kexec TPM log buffer\n");
@@ -400,6 +405,8 @@ static int __init tpm_post_kexec(void)
 	int ret;
 
 	ret = tpm_get_kexec_buffer(&phyaddr, &size);
+	printk(KERN_INFO "ooo %s @ %u: ret: %d, phyaddr: 0x%llx, size: %zu\n",
+		__func__, __LINE__, ret, (unsigned long long)phyaddr, size);
 	if (ret)
 		return 0;
 
@@ -446,6 +453,7 @@ static int __init tpm_post_kexec(void)
 		pr_err("Could not update linux,sml-base with new address");
 		goto err_free_newprop_struct;
 	}
+	printk(KERN_INFO "ooo %s @ %u: ret=%d\n", __func__, __LINE__, ret);
 
 	goto exit;
 

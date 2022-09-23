@@ -222,6 +222,10 @@ static int get_reserved_memory_ranges(struct crash_mem **mem_ranges)
 	if (ret)
 		goto out;
 
+	ret = add_sml_mem_range(mem_ranges);
+	if (ret)
+		goto out;
+
 	ret = add_tce_mem_ranges(mem_ranges);
 	if (ret)
 		goto out;

@@ -21,5 +21,6 @@ int add_kernel_mem_range(struct crash_mem **mem_ranges);
 int add_rtas_mem_range(struct crash_mem **mem_ranges);
 int add_opal_mem_range(struct crash_mem **mem_ranges);
 int add_reserved_mem_ranges(struct crash_mem **mem_ranges);
+int add_sml_mem_range(struct crash_mem **mem_ranges);
 
 #endif /* _ASM_POWERPC_KEXEC_RANGES_H */

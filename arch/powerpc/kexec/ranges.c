@@ -350,6 +350,26 @@ int add_rtas_mem_range(struct crash_mem **mem_ranges)
 	return ret;
 }
 
+int add_sml_mem_range(struct crash_mem **mem_ranges)
+{
+	struct device_node *dn;
+	u64 base;
+	u32 size;
+	int ret = 0;
+
+	dn = of_find_node_by_path("/vdevice/vtpm");
+	if (!dn)
+		return 0;
+
+	ret = of_property_read_u64(dn, "linux,sml-base", &base);
+	ret |= of_property_read_u32(dn, "linux,sml-size", &size);
+	if (!ret)
+		ret = add_mem_range(mem_ranges, base, size);
+
+	of_node_put(dn);
+	return ret;
+}
+
 /**
  * add_opal_mem_range - Adds OPAL region to the given memory ranges list.
  * @mem_ranges:         Range list to add the memory range to.

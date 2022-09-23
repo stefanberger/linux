@@ -1906,6 +1906,7 @@ static void __init prom_instantiate_sml(void)
 	u32 entry = 0, size = 0, succ = 0;
 	u64 base;
 	__be32 val;
+	__be64 val64;
 
 	prom_debug("prom_instantiate_sml: start...\n");
 
@@ -1962,10 +1963,13 @@ static void __init prom_instantiate_sml(void)
 
 	reserve_mem(base, size);
 
+	val64 = cpu_to_be64(base);
 	prom_setprop(ibmvtpm_node, "/vdevice/vtpm", "linux,sml-base",
-		     &base, sizeof(base));
+		     &val64, sizeof(val64));
+
+	val = cpu_to_be32(size);
 	prom_setprop(ibmvtpm_node, "/vdevice/vtpm", "linux,sml-size",
-		     &size, sizeof(size));
+		     &val, sizeof(val));
 
 	prom_debug("sml base     = 0x%llx\n", base);
 	prom_debug("sml size     = 0x%x\n", size);

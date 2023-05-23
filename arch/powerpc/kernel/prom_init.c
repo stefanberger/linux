@@ -132,6 +132,9 @@ extern void __start(unsigned long r3, unsigned long r4, unsigned long r5,
 		    unsigned long r6, unsigned long r7, unsigned long r8,
 		    unsigned long r9);
 
+static void __init *make_room(unsigned long *mem_start, unsigned long *mem_end,
+			      unsigned long needed, unsigned long align);
+
 #ifdef CONFIG_PPC64
 extern int enter_prom(struct prom_args *args, unsigned long entry);
 #else
@@ -1893,7 +1896,7 @@ static void __init prom_instantiate_rtas(void)
 /*
  * Allocate room for and instantiate Stored Measurement Log (SML)
  */
-static void __init prom_instantiate_sml(void)
+static u64 __init prom_instantiate_sml(unsigned long *mem_start, unsigned long *mem_end)
 {
 	phandle ibmvtpm_node;
 	ihandle ibmvtpm_inst;
@@ -1906,12 +1909,12 @@ static void __init prom_instantiate_sml(void)
 	ibmvtpm_node = call_prom("finddevice", 1, 1, ADDR("/vdevice/vtpm"));
 	prom_debug("ibmvtpm_node: %x\n", ibmvtpm_node);
 	if (!PHANDLE_VALID(ibmvtpm_node))
-		return;
+		return 0;
 
 	ibmvtpm_inst = call_prom("open", 1, 1, ADDR("/vdevice/vtpm"));
 	if (!IHANDLE_VALID(ibmvtpm_inst)) {
 		prom_printf("opening vtpm package failed (%x)\n", ibmvtpm_inst);
-		return;
+		return -ENODEV;
 	}
 
 	if (prom_getprop(ibmvtpm_node, "ibm,sml-efi-reformat-supported",
@@ -1920,27 +1923,27 @@ static void __init prom_instantiate_sml(void)
 				  ADDR("reformat-sml-to-efi-alignment"),
 				  ibmvtpm_inst) != 0 || succ == 0) {
 			prom_printf("Reformat SML to EFI alignment failed\n");
-			return;
+			return -EFAULT;
 		}
 
 		if (call_prom_ret("call-method", 2, 2, &size,
 				  ADDR("sml-get-allocated-size"),
 				  ibmvtpm_inst) != 0 || size == 0) {
 			prom_printf("SML get allocated size failed\n");
-			return;
+			return -EFAULT;
 		}
 	} else {
 		if (call_prom_ret("call-method", 2, 2, &size,
 				  ADDR("sml-get-handover-size"),
 				  ibmvtpm_inst) != 0 || size == 0) {
 			prom_printf("SML get handover size failed\n");
-			return;
+			return -EFAULT;
 		}
 	}
 
-	base = alloc_down(size, PAGE_SIZE, 0);
-	if (base == 0)
-		prom_panic("Could not allocate memory for sml\n");
+	base = (u64)make_room(mem_start, mem_end, size, 1);
+	if (!base)
+		prom_panic("No memory for SML");
 
 	prom_printf("instantiating sml at 0x%llx...", base);
 
@@ -1950,11 +1953,9 @@ static void __init prom_instantiate_sml(void)
 			  ADDR("sml-handover"),
 			  ibmvtpm_inst, size, base) != 0 || entry == 0) {
 		prom_printf("SML handover failed\n");
-		return;
+		return -EFAULT;
 	}
 	prom_printf(" done\n");
-
-	reserve_mem(base, size);
 
 	prom_setprop(ibmvtpm_node, "/vdevice/vtpm", "linux,sml-base",
 		     &base, sizeof(base));
@@ -1965,6 +1966,8 @@ static void __init prom_instantiate_sml(void)
 	prom_debug("sml size     = 0x%x\n", size);
 
 	prom_debug("prom_instantiate_sml: end...\n");
+
+	return base;
 }
 
 /*
@@ -2725,6 +2728,12 @@ static void __init flatten_device_tree(void)
 	dt_header_start = (unsigned long)hdr;
 	rsvmap = make_room(&mem_start, &mem_end, sizeof(mem_reserve_map), 8);
 
+#ifdef CONFIG_PPC64
+	/* instantiate sml */
+	if (prom_instantiate_sml(&mem_start, &mem_end) < 0)
+		prom_panic("Could not instantiate SML");
+#endif
+
 	/* Start of strings */
 	mem_start = PAGE_ALIGN(mem_start);
 	dt_string_start = mem_start;
@@ -3401,11 +3410,6 @@ unsigned long __init prom_init(unsigned long r3, unsigned long r4,
 	 */
 	if (of_platform != PLATFORM_POWERMAC)
 		prom_instantiate_rtas();
-
-#ifdef CONFIG_PPC64
-	/* instantiate sml */
-	prom_instantiate_sml();
-#endif
 
 	/*
 	 * On non-powermacs, put all CPUs in spin-loops.

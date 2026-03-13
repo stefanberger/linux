@@ -142,9 +142,6 @@ out:
  * IMA signature version 3 disambiguates the data that is signed by
  * indirectly signing the hash of the ima_file_id structure data.
  *
- * Signing the ima_file_id struct is currently only supported for
- * IMA_VERITY_DIGSIG type xattrs.
- *
  * Return 0 on success, error code otherwise.
  */
 static int calc_file_id_hash(enum evm_ima_xattr_type type,
@@ -159,7 +156,7 @@ static int calc_file_id_hash(enum evm_ima_xattr_type type,
 	size_t file_id_size;
 	int rc;
 
-	if (type != IMA_VERITY_DIGSIG)
+	if (type != IMA_VERITY_DIGSIG && type != EVM_IMA_XATTR_DIGSIG)
 		return -EINVAL;
 
 	tfm = crypto_alloc_shash(hash_algo_name[algo], 0, 0);

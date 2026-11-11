@@ -4186,8 +4186,9 @@ static int test_akcipher_one(struct crypto_akcipher *tfm,
 			      crypto_akcipher_verify(req) :
 			      /* Run asymmetric encrypt */
 			      crypto_akcipher_encrypt(req), &wait);
-	if (err) {
-		pr_err("alg: akcipher: %s test failed. err %d\n", op, err);
+	if (err != vecs->verify_error) {
+		pr_err("alg: akcipher: %s test failed. expected %d, got %d\n",
+		       op, vecs->verify_error, err);
 		goto free_all;
 	}
 	if (!vecs->siggen_sigver_test && c) {

@@ -922,10 +922,15 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	"\x16\x2b\xce\x33\x57\x6b\x31\x5e\xce\xcb\xb6\x40\x68\x37\xbf\x51"
 	"\xf5",
 	.key_len = 65,
+	.params =
+	"\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48"
+	"\xce\x3d\x03\x01\x07",
+	.param_len = 21,
 	.m =
 	"\xb2\xc3\x09\x72\x03\x17\x9d\xaa\x5c\x4a\xd8\xff\x02\xfe\xcb\x15"
 	"\x21\x53\x81\x77\x45\xec\x45\x24\x3d\x68\x10\xb9\xf2\xa5\x88\x3a",
 	.m_size = 32,
+	.algo = OID_id_ecdsa_with_sha512,
 	.c =
 	"\x30\x46\x02\x21\x00\x90\xeb\xad\xd0\x56\x5d\x34\x8e\x74\x18\xf2"
 	"\xff\xab\xaa\x43\xb1\x9f\x68\xd4\x0c\x4f\x01\x4b\xe3\x10\x60\x9e"
@@ -935,6 +940,7 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	.c_size = 72,
 	.verify_error = -EKEYREJECTED,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 	/* Invalid signature: Q = -G, r = s, e = 3r mod n. */
 	{
@@ -945,10 +951,15 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	"\xe9\xd4\x31\xcc\xa9\x94\xce\xa1\x31\x34\x49\xbf\x97\xc8\x40\xae"
 	"\x0a",
 	.key_len = 65,
+	.params =
+	"\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48"
+	"\xce\x3d\x03\x01\x07",
+	.param_len = 21,
 	.m =
 	"\xb2\xc3\x09\x72\x03\x17\x9d\xaa\x5c\x4a\xd8\xff\x02\xfe\xcb\x15"
 	"\x21\x53\x81\x77\x45\xec\x45\x24\x3d\x68\x10\xb9\xf2\xa5\x88\x3a",
 	.m_size = 32,
+	.algo = OID_id_ecdsa_with_sha512,
 	.c =
 	"\x30\x46\x02\x21\x00\x90\xeb\xad\xd0\x56\x5d\x34\x8e\x74\x18\xf2"
 	"\xff\xab\xaa\x43\xb1\x9f\x68\xd4\x0c\x4f\x01\x4b\xe3\x10\x60\x9e"
@@ -958,6 +969,7 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	.c_size = 72,
 	.verify_error = -EKEYREJECTED,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 	/* Wycheproof secp256r1/SHA-256 tcId 60. */
 	{
@@ -968,10 +980,15 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	"\x60\x67\x66\xb3\xd9\x68\x50\x01\x55\x8d\x1a\x97\x4e\x73\x41\x51"
 	"\x3e",
 	.key_len = 65,
+	.params =
+	"\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48"
+	"\xce\x3d\x03\x01\x07",
+	.param_len = 21,
 	.m =
 	"\x70\x23\x9d\xd8\x77\xf7\xc9\x44\xc4\x22\xf4\x4d\xea\x4e\xd1\xa5"
 	"\x2f\x26\x27\x41\x6f\xaf\x2f\x07\x2f\xa5\x0c\x77\x2e\xd6\xf8\x07",
 	.m_size = 32,
+	.algo = OID_id_ecdsa_with_sha512,
 	.c =
 	"\x30\x44\x02\x20\x64\xa1\xaa\xb5\x00\x0d\x0e\x80\x4f\x3e\x2f\xc0"
 	"\x2b\xde\xe9\xbe\x8f\xf3\x12\x33\x4e\x2b\xa1\x6d\x11\x54\x7c\x97"
@@ -980,6 +997,7 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	"\x3b\x9b\xb2\xcf\x4f\x1b",
 	.c_size = 70,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 	/* Wycheproof secp256r1/SHA-256 tcId 210. */
 	{
@@ -990,10 +1008,15 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	"\x92\x61\xfe\x3a\x07\x3e\x2f\xfd\x78\x41\x2f\x72\x68\x67\xdb\x58"
 	"\x9e",
 	.key_len = 65,
+	.params =
+	"\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48"
+	"\xce\x3d\x03\x01\x07",
+	.param_len = 21,
 	.m =
 	"\xbb\x5a\x52\xf4\x2f\x9c\x92\x61\xed\x43\x61\xf5\x94\x22\xa1\xe3"
 	"\x00\x36\xe7\xc3\x2b\x27\x0c\x88\x07\xa4\x19\xfe\xca\x60\x50\x23",
 	.m_size = 32,
+	.algo = OID_id_ecdsa_with_sha512,
 	.c =
 	"\x30\x45\x02\x20\x7c\xf2\x7b\x18\x8d\x03\x4f\x7e\x8a\x52\x38\x03"
 	"\x04\xb5\x1a\xc3\xc0\x89\x69\xe2\x77\xf2\x1b\x35\xa6\x0b\x48\xfc"
@@ -1002,6 +1025,7 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	"\xcd\xd9\xf8\xfd\x6b\x63\xcc",
 	.c_size = 71,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 	/* Q = G, d = 1, k = 2. */
 	{
@@ -1012,10 +1036,15 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	"\x16\x2b\xce\x33\x57\x6b\x31\x5e\xce\xcb\xb6\x40\x68\x37\xbf\x51"
 	"\xf5",
 	.key_len = 65,
+	.params =
+	"\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48"
+	"\xce\x3d\x03\x01\x07",
+	.param_len = 21,
 	.m =
 	"\x35\x9d\x17\x29\xb9\x1a\x52\xe9\x8b\xb5\x95\xc3\x86\x28\x3c\x10"
 	"\x30\x44\x95\x1a\xa1\x08\x20\xf0\xa0\x22\xc4\x18\xc2\x71\xa0\xcc",
 	.m_size = 32,
+	.algo = OID_id_ecdsa_with_sha512,
 	.c =
 	"\x30\x44\x02\x20\x7c\xf2\x7b\x18\x8d\x03\x4f\x7e\x8a\x52\x38\x03"
 	"\x04\xb5\x1a\xc3\xc0\x89\x69\xe2\x77\xf2\x1b\x35\xa6\x0b\x48\xfc"
@@ -1024,6 +1053,7 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	"\x06\x8a\x84\xec\x1d\x22",
 	.c_size = 70,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 	/* Q = -G, d = n - 1, k = 2. */
 	{
@@ -1034,10 +1064,15 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	"\xe9\xd4\x31\xcc\xa9\x94\xce\xa1\x31\x34\x49\xbf\x97\xc8\x40\xae"
 	"\x0a",
 	.key_len = 65,
+	.params =
+	"\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48"
+	"\xce\x3d\x03\x01\x07",
+	.param_len = 21,
 	.m =
 	"\x35\x9d\x17\x29\xb9\x1a\x52\xe9\x8b\xb5\x95\xc3\x86\x28\x3c\x10"
 	"\x30\x44\x95\x1a\xa1\x08\x20\xf0\xa0\x22\xc4\x18\xc2\x71\xa0\xcc",
 	.m_size = 32,
+	.algo = OID_id_ecdsa_with_sha512,
 	.c =
 	"\x30\x45\x02\x20\x7c\xf2\x7b\x18\x8d\x03\x4f\x7e\x8a\x52\x38\x03"
 	"\x04\xb5\x1a\xc3\xc0\x89\x69\xe2\x77\xf2\x1b\x35\xa6\x0b\x48\xfc"
@@ -1046,6 +1081,7 @@ static const struct akcipher_testvec ecdsa_nist_p256_tv_template[] = {
 	"\xc5\x88\x51\x39\xe8\xa8\xfb",
 	.c_size = 71,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 };
 
@@ -1390,6 +1426,7 @@ static const struct akcipher_testvec ecrdsa_tv_template[] = {
 	.m_size = 32,
 	.algo = OID_gost2012PKey256,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 	/* cp256a: Q=-G, z1 = 7, z2 = 6. */
 	{
@@ -1416,6 +1453,7 @@ static const struct akcipher_testvec ecrdsa_tv_template[] = {
 	.m_size = 32,
 	.algo = OID_gost2012PKey256,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 	/* cp256a: Q=-2G, z1 = 5, z2 = 2. */
 	{
@@ -1442,6 +1480,7 @@ static const struct akcipher_testvec ecrdsa_tv_template[] = {
 	.m_size = 32,
 	.algo = OID_gost2012PKey256,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 	/* tc512a: Q=G, z1 = 3, z2 = 1. */
 	{
@@ -1477,6 +1516,7 @@ static const struct akcipher_testvec ecrdsa_tv_template[] = {
 	.m_size = 64,
 	.algo = OID_gost2012PKey512,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 	/* tc512a: Q=-G, z1 = 7, z2 = 6. */
 	{
@@ -1512,6 +1552,7 @@ static const struct akcipher_testvec ecrdsa_tv_template[] = {
 	.m_size = 64,
 	.algo = OID_gost2012PKey512,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 	/* tc512a: Q=-2G, z1 = 5, z2 = 2. */
 	{
@@ -1547,6 +1588,7 @@ static const struct akcipher_testvec ecrdsa_tv_template[] = {
 	.m_size = 64,
 	.algo = OID_gost2012PKey512,
 	.public_key_vec = true,
+	.siggen_sigver_test = true,
 	},
 };
 
